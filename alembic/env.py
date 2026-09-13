@@ -17,7 +17,10 @@ from jobsearch.models.processing_run import ProcessingRun
 
 config = context.config
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    try:
+        fileConfig(config.config_file_name)
+    except KeyError:
+        pass
 
 target_metadata = Base.metadata
 

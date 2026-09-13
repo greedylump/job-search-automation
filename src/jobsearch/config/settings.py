@@ -19,3 +19,7 @@ class Settings:
 
 
 settings = Settings.from_env()
+
+
+def get_settings() -> Settings:
+    return Settings.from_env()
