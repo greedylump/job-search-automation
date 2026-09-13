@@ -1,0 +1,50 @@
+[
+  {
+    "source_job_id": "job-alpha",
+    "company": "Acme",
+    "title": "Python Engineer",
+    "location": "Remote",
+    "remote_type": "remote",
+    "employment_type": "full_time",
+    "salary_min": 100000,
+    "salary_max": 130000,
+    "salary_currency": "USD",
+    "description": "Good role",
+    "job_url": "https://example.com/jobs/job-alpha",
+    "apply_url": "https://example.com/apply/job-alpha",
+    "ats_type": "greenhouse",
+    "posted_at": "2026-09-12T00:00:00Z"
+  },
+  {
+    "source_job_id": "job-beta",
+    "company": "BetaCo",
+    "title": " ",
+    "location": "Remote",
+    "remote_type": "remote",
+    "employment_type": "full_time",
+    "salary_min": 90000,
+    "salary_max": 120000,
+    "salary_currency": "USD",
+    "description": "Missing title should filter",
+    "job_url": "https://example.com/jobs/job-beta",
+    "apply_url": "https://example.com/apply/job-beta",
+    "ats_type": "greenhouse",
+    "posted_at": "2026-09-12T00:00:00Z"
+  },
+  {
+    "source_job_id": "job-gamma",
+    "company": "GammaCo",
+    "title": "Data Scientist",
+    "location": "Remote",
+    "remote_type": "onsite",
+    "employment_type": "full_time",
+    "salary_min": 120000,
+    "salary_max": 150000,
+    "salary_currency": "USD",
+    "description": "Has a remote_type that will be filtered by placeholder rule",
+    "job_url": "https://example.com/jobs/job-gamma",
+    "apply_url": "https://example.com/apply/job-gamma",
+    "ats_type": "lever",
+    "posted_at": "2026-09-12T00:00:00Z"
+  }
+]

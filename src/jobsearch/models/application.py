@@ -16,6 +16,7 @@ class Application(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     job_id: Mapped[int] = mapped_column(ForeignKey("jobs.id"), nullable=False, index=True)
+    applicant_id: Mapped[Optional[int]] = mapped_column(ForeignKey("applicants.id"), nullable=True, index=True)
     resume_variant: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     tailoring_level: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
     status: Mapped[str] = mapped_column(String(32), default="prepared", nullable=False)
@@ -26,3 +27,4 @@ class Application(Base):
     outcome: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     job = relationship("Job")
+    applicant = relationship("Applicant", back_populates="applications")

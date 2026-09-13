@@ -2,6 +2,10 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
+from dotenv import load_dotenv
+
+load_dotenv(dotenv_path=Path.cwd() / ".env", override=False)
+
 
 @dataclass(frozen=True)
 class Settings:
@@ -22,4 +26,5 @@ settings = Settings.from_env()
 
 
 def get_settings() -> Settings:
+    load_dotenv(dotenv_path=Path.cwd() / ".env", override=False)
     return Settings.from_env()

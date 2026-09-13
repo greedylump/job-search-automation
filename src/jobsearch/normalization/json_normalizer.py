@@ -20,10 +20,13 @@ class JsonJobNormalizer:
         else:
             posted_at_value = None
 
+        source_job_id_value = payload.get("source_job_id") or payload.get("id") or payload.get("job_id")
+        normalized_source_job_id = str(source_job_id_value) if source_job_id_value else None
+
         now = datetime.now(timezone.utc)
         return Job(
             source=source,
-            source_job_id=str(payload.get("source_job_id") or payload.get("id") or payload.get("job_id") or ""),
+            source_job_id=normalized_source_job_id,
             company=payload.get("company"),
             title=payload.get("title"),
             location=payload.get("location"),

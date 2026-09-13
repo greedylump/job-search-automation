@@ -16,6 +16,7 @@ class JobEvaluation(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     job_id: Mapped[int] = mapped_column(ForeignKey("jobs.id"), nullable=False, index=True)
+    applicant_id: Mapped[Optional[int]] = mapped_column(ForeignKey("applicants.id"), nullable=True, index=True)
     tier: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
     hireability_score: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     career_value_score: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
@@ -30,3 +31,4 @@ class JobEvaluation(Base):
     estimated_ai_cost: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
 
     job = relationship("Job")
+    applicant = relationship("Applicant", back_populates="evaluations")

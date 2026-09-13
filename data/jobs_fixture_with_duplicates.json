@@ -1,0 +1,50 @@
+[
+  {
+    "source_job_id": "job-001",
+    "company": "Example Labs",
+    "title": "Python Developer",
+    "location": "Seattle, WA",
+    "remote_type": "remote",
+    "employment_type": "full_time",
+    "salary_min": 120000,
+    "salary_max": 160000,
+    "salary_currency": "USD",
+    "description": "Build backend services and data pipelines.",
+    "job_url": "https://example.com/jobs/job-001",
+    "apply_url": "https://example.com/apply/job-001",
+    "ats_type": "greenhouse",
+    "posted_at": "2026-09-12T00:00:00Z"
+  },
+  {
+    "source_job_id": "job-001",
+    "company": "Example Labs",
+    "title": "Python Developer",
+    "location": "Seattle, WA",
+    "remote_type": "remote",
+    "employment_type": "full_time",
+    "salary_min": 120000,
+    "salary_max": 160000,
+    "salary_currency": "USD",
+    "description": "Build backend services and data pipelines.",
+    "job_url": "https://example.com/jobs/job-001",
+    "apply_url": "https://example.com/apply/job-001",
+    "ats_type": "greenhouse",
+    "posted_at": "2026-09-12T00:00:00Z"
+  },
+  {
+    "source_job_id": "job-002",
+    "company": "Acme AI",
+    "title": "Data Engineer",
+    "location": "Remote",
+    "remote_type": "remote",
+    "employment_type": "contract",
+    "salary_min": 110000,
+    "salary_max": 150000,
+    "salary_currency": "USD",
+    "description": "Create data pipelines for customer insights.",
+    "job_url": "https://example.com/jobs/job-002",
+    "apply_url": "https://example.com/apply/job-002",
+    "ats_type": "lever",
+    "posted_at": "2026-09-11T00:00:00Z"
+  }
+]

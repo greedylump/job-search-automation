@@ -17,36 +17,40 @@ def test_repository_deduplicates_by_source_and_source_job_id() -> None:
     Session = sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False)
     session = Session()
 
-    repo = JobRepository(session)
+    try:
+        repo = JobRepository(session)
 
-    job_one = Job(
-        source="fixture_json",
-        source_job_id="job-123",
-        title="Python Developer",
-        company="Example",
-        first_seen_at=datetime.now(timezone.utc),
-        last_seen_at=datetime.now(timezone.utc),
-        status="new",
-    )
+        job_one = Job(
+            source="fixture_json",
+            source_job_id="job-123",
+            title="Python Developer",
+            company="Example",
+            first_seen_at=datetime.now(timezone.utc),
+            last_seen_at=datetime.now(timezone.utc),
+            status="new",
+        )
 
-    inserted = repo.insert_if_new(job_one)
-    assert inserted is True
+        inserted = repo.insert_if_new(job_one)
+        assert inserted is True
 
-    duplicate = Job(
-        source="fixture_json",
-        source_job_id="job-123",
-        title="Python Developer",
-        company="Example",
-        first_seen_at=datetime.now(timezone.utc),
-        last_seen_at=datetime.now(timezone.utc),
-        status="new",
-    )
+        duplicate = Job(
+            source="fixture_json",
+            source_job_id="job-123",
+            title="Python Developer",
+            company="Example",
+            first_seen_at=datetime.now(timezone.utc),
+            last_seen_at=datetime.now(timezone.utc),
+            status="new",
+        )
 
-    inserted_again = repo.insert_if_new(duplicate)
-    assert inserted_again is False
+        inserted_again = repo.insert_if_new(duplicate)
+        assert inserted_again is False
 
-    session.commit()
-    assert repo.get_by_source_key("fixture_json", "job-123") is not None
+        session.commit()
+        assert repo.get_by_source_key("fixture_json", "job-123") is not None
+    finally:
+        session.close()
+        engine.dispose()
 
 
 def test_filter_rules_accept_and_reject_jobs_deterministically() -> None:

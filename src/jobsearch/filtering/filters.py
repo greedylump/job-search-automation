@@ -26,9 +26,10 @@ class RemoteOnlyFilterRule(FilterRule):
         super().__init__("remote_only")
 
     def should_keep(self, job: Job) -> bool:
-        if job.remote_type and job.remote_type.lower() == "remote":
-            return True
-        return True
+        # Placeholder deterministic rule: remote-only accepts only a true remote signal.
+        if job.remote_type:
+            return job.remote_type.lower() == "remote"
+        return False
 
 
 class JobFilter:

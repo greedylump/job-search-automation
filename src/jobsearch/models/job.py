@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import String, Text, DateTime, Integer, Float, UniqueConstraint
+from sqlalchemy import Index, String, Text, DateTime, Integer, Float
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .base import Base
@@ -14,7 +14,7 @@ class Job(Base):
 
     __tablename__ = "jobs"
     __table_args__ = (
-        UniqueConstraint("source", "source_job_id", name="uq_jobs_source_source_job_id"),
+        Index("uq_jobs_source_source_job_id", "source", "source_job_id", unique=True),
         {"sqlite_autoincrement": True},
     )
 
