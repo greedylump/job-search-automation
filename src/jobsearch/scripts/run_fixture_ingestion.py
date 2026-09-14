@@ -22,9 +22,10 @@ def _finish_processing_run_for_failure(
     database_url: str,
     processing_run_id: int,
     *,
-    jobs_seen: int,
+    records_seen: int,
     jobs_deduplicated: int,
-    jobs_filtered: int,
+    records_invalid: int,
+    invalid_reason_counts: dict[str, int],
     jobs_scored: int,
     ai_cost: float,
     error_message: str,
@@ -37,10 +38,11 @@ def _finish_processing_run_for_failure(
             return
         run.status = "failed"
         run.error_message = error_message
-        run.jobs_seen = jobs_seen
+        run.records_seen = records_seen
         run.jobs_new = 0
         run.jobs_deduplicated = jobs_deduplicated
-        run.jobs_filtered = jobs_filtered
+        run.records_invalid = records_invalid
+        run.invalid_reason_counts = dict(invalid_reason_counts)
         run.jobs_scored = jobs_scored
         run.ai_cost = ai_cost
         run.completed_at = datetime.now(timezone.utc)
@@ -60,16 +62,17 @@ def run_fixture_ingestion(fixture_path: str | Path = "data/jobs_fixture.json") -
     session = get_session(settings.database_url)
     processing_run = None
     processing_run_id = None
-    jobs_seen = 0
+    records_seen = 0
     jobs_new = 0
     jobs_deduplicated = 0
-    jobs_filtered = 0
+    records_invalid = 0
+    invalid_reason_counts = {"non_object": 0, "missing_source_id": 0, "invalid_title": 0}
     jobs_scored = 0
     ai_cost = 0.0
 
     try:
         run_repo = ProcessingRunRepository(session)
-        processing_run = run_repo.create(source="fixture_json")
+        processing_run = run_repo.create(source="fixture_json", invalid_reason_counts=invalid_reason_counts)
         session.commit()
         processing_run_id = processing_run.id
 
@@ -82,11 +85,17 @@ def run_fixture_ingestion(fixture_path: str | Path = "data/jobs_fixture.json") -
 
         # Normalize and verify source-key policy before adding any row.
         for payload in raw_jobs:
+            records_seen += 1
+            if not isinstance(payload, dict):
+                records_invalid += 1
+                invalid_reason_counts["non_object"] += 1
+                continue
+
             job = JsonJobNormalizer.normalize(payload, source="fixture_json")
-            jobs_seen += 1
 
             if not job.source_job_id or not job.source_job_id.strip():
-                jobs_filtered += 1
+                records_invalid += 1
+                invalid_reason_counts["missing_source_id"] += 1
                 continue
 
             key = (job.source, job.source_job_id)
@@ -104,7 +113,8 @@ def run_fixture_ingestion(fixture_path: str | Path = "data/jobs_fixture.json") -
 
         # Reject invalid source records only; suitability is evaluated separately.
         filtered_jobs = JobFilter().filter(normalized_jobs)
-        jobs_filtered += len(normalized_jobs) - len(filtered_jobs)
+        records_invalid += len(normalized_jobs) - len(filtered_jobs)
+        invalid_reason_counts["invalid_title"] = len(normalized_jobs) - len(filtered_jobs)
 
         # Persist accepted jobs.
         for job in filtered_jobs:
@@ -112,10 +122,11 @@ def run_fixture_ingestion(fixture_path: str | Path = "data/jobs_fixture.json") -
             jobs_new += 1
 
         # Record the metrics into the ProcessingRun row.
-        processing_run.jobs_seen = jobs_seen
+        processing_run.records_seen = records_seen
         processing_run.jobs_new = jobs_new
         processing_run.jobs_deduplicated = jobs_deduplicated
-        processing_run.jobs_filtered = jobs_filtered
+        processing_run.records_invalid = records_invalid
+        processing_run.invalid_reason_counts = dict(invalid_reason_counts)
         processing_run.jobs_scored = jobs_scored
         processing_run.ai_cost = ai_cost
         processing_run.completed_at = datetime.now(timezone.utc)
@@ -124,12 +135,18 @@ def run_fixture_ingestion(fixture_path: str | Path = "data/jobs_fixture.json") -
 
         session.commit()
         logger.info(
-            "Processed %s jobs from %s; dedup=%s; filtered=%s; inserted=%s",
-            jobs_seen,
+            "Processed %s records from %s; dedup=%s; invalid=%s; inserted=%s",
+            records_seen,
             fixture_path,
             jobs_deduplicated,
-            jobs_filtered,
+            records_invalid,
             jobs_new,
+        )
+        logger.info(
+            "Invalid records: non-object=%s; missing ID=%s; invalid title=%s",
+            invalid_reason_counts["non_object"],
+            invalid_reason_counts["missing_source_id"],
+            invalid_reason_counts["invalid_title"],
         )
         return jobs_new
     except Exception as exc:
@@ -142,9 +159,10 @@ def run_fixture_ingestion(fixture_path: str | Path = "data/jobs_fixture.json") -
             _finish_processing_run_for_failure(
                 settings.database_url,
                 processing_run_id,
-                jobs_seen=jobs_seen,
+                records_seen=records_seen,
                 jobs_deduplicated=jobs_deduplicated,
-                jobs_filtered=jobs_filtered,
+                records_invalid=records_invalid,
+                invalid_reason_counts=invalid_reason_counts,
                 jobs_scored=jobs_scored,
                 ai_cost=ai_cost,
                 error_message=str(exc),

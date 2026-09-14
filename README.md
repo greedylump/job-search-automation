@@ -22,6 +22,10 @@ src/jobsearch/
 tests/
     test_end_to_end_ingestion.py
     test_models.py
+    test_storage_and_filtering.py
+    test_applicants_and_migrations.py
+    test_evaluation_rules.py
+    test_evaluation_workflow.py
 ```
 
 ## Local setup
@@ -52,7 +56,7 @@ Run the sample JSON fixture ingestion pipeline:
 python -m jobsearch.scripts.run_fixture_ingestion
 ```
 
-Expected result: the fixture runner writes one `ProcessingRun` row and records metrics such as `jobs_seen`, `jobs_new`, `jobs_deduplicated`, and `jobs_filtered` for the run.
+Expected result: the fixture runner writes one `ProcessingRun` row and records metrics such as `records_seen`, `jobs_new`, `jobs_deduplicated`, and `records_invalid` for the run.
 
 Run tests:
 
@@ -79,7 +83,7 @@ The canonical schema manager is Alembic. Direct table creation with `Base.metada
 python -m jobsearch.scripts.init_db
 ```
 
-The migration chain in `alembic/versions/` should produce a head revision of `20260913_06` and the `jobs` table must expose the unique `source + source_job_id` index shape recorded in the model.
+The migration chain in `alembic/versions/` should produce a head revision of `20260914_08` and the `jobs` table must expose the unique `source + source_job_id` index shape recorded in the model.
 
 
 ## Applicant profiles
@@ -112,19 +116,22 @@ normalized. Invalid input and missing IDs produce nonzero exit codes.
 
 Both direct Alembic commands and application commands read `.env`; shell variables
 win over `.env`. An explicit Python `run_migrations(database_url=...)` argument wins
-over both. The final migration head is `20260913_06`: `_03` retains its historical
+over both. The final migration head is `20260914_08`: `_03` retains its historical
 `completed` default, `_04` adds applicants and nullable links, and `_05` changes
 only the default for new processing runs to `running`, preserving existing statuses.
 `_06` adds nullable salary periods and versioned deterministic evaluation history.
 Existing salary periods remain unknown; existing evaluations and nullable legacy
 applicant links are preserved.
+`_07` renames `jobs_seen` to `records_seen` and `jobs_filtered` to
+`records_invalid`, preserving historical values without recalculating them.
+`_08` adds nullable `invalid_reason_counts`; historical breakdowns remain unknown.
 
 ## Fixture counts
 
 Each invocation records one processing run. Counts below assume a fresh database
 for the initial run, followed by the same fixture again.
 
-| Fixture | Seen per run | Initial new / deduplicated / filtered | Repeated new / deduplicated / filtered |
+| Fixture | Records seen per run | Initial new / deduplicated / invalid | Repeated new / deduplicated / invalid |
 | --- | ---: | --- | --- |
 | `jobs_fixture.json` | 2 | 2 / 0 / 0 | 0 / 2 / 0 |
 | `jobs_fixture_with_duplicates.json` | 3 | 2 / 1 / 0 | 0 / 3 / 0 |
@@ -135,11 +142,55 @@ The obsolete ignored `data/test-jobsearch.db` is not used by these commands.
 
 
 The filtered fixture intentionally changed from 1 new / 2 filtered to 2 new / 1
-filtered: its onsite job is now stored. `jobs_filtered` counts invalid source
-records (missing source keys or titles shorter than two nonblank characters),
+filtered: its onsite job is now stored. `records_invalid` counts invalid source
+records (non-object entries, missing source keys, non-string titles, or titles
+shorter than two characters after trimming surrounding whitespace),
 not applicant rejections. Deduplication and last-seen updates still apply.
 Existing stored jobs can be evaluated immediately; no collection is required.
 Ingestion does not update other fields of an existing source key.
+
+`records_seen` counts every entry visited in the fixture array (or its `jobs` array),
+including non-object entries. Non-object entries are counted as filtered before
+normalization; records with source keys are deduplicated before title filtering.
+For completed runs, `records_seen = jobs_new + jobs_deduplicated + records_invalid`.
+Invalid JSON or an unsupported outer structure fails the run instead of counting
+as an individual filtered record.
+
+New fixture runs store `invalid_reason_counts` with three aggregate counters:
+`non_object`, `missing_source_id`, and `invalid_title`. Their sum equals
+`records_invalid`. Each rejected entry receives one reason, following the existing
+validation order; duplicates are still counted before title validation. Failed
+runs preserve the reasons counted before failure, even when job inserts roll back.
+Historical runs have a null breakdown, not fabricated zero counts. No raw input or
+applicant details are stored in this breakdown.
+
+The ingestion log includes a summary such as:
+```text
+Invalid records: non-object=2; missing ID=1; invalid title=2
+```
+
+## Fixture-ingestion checkpoint — 2026-09-14
+
+Fixture ingestion now accounts for malformed entries, rejects non-string titles
+without aborting the batch, and persists aggregate rejection reasons on successful
+and failed runs. The applicant timestamp test uses a controlled clock so updates
+do not depend on operating-system clock resolution.
+
+Verification at this checkpoint:
+
+- Full test suite: **149 passed**.
+- A separate temporary database migrated to `20260914_08`; Alembic's schema check
+  found no differences from the models.
+- A six-entry mixed fixture produced 2 new jobs, 1 duplicate, and 3 invalid records.
+  Repeating it produced 0 new jobs, 3 duplicates, and 3 invalid records.
+- Both runs saved one rejection for each reason, completed timestamps, zero jobs
+  scored, and zero AI cost. Two jobs remained stored.
+- Database integrity and foreign-key checks passed. Temporary verification files
+  were removed; the project database was not migrated by this verification.
+
+The fixture-ingestion phase is ready for review. The next implementation milestone
+is one real job source with conservative collection and reliable error handling.
+AI scoring, application automation, and deployment remain later work.
 
 ## Profile-to-evaluation workflow (PowerShell)
 

@@ -129,7 +129,7 @@ def test_ingestion_keeps_unsuitable_jobs_and_evaluation_is_separate(database, mo
         assert summary == {"keep": 1, "reject": 1, "review": 0, "unchanged": 0}
         assert session.query(Job).count() == 2
         run = session.query(ProcessingRun).one()
-        assert run.jobs_new == 2 and run.jobs_filtered == 1 and run.jobs_scored == 0
+        assert run.jobs_new == 2 and run.records_invalid == 1 and run.jobs_scored == 0
         assert all(result.job.status == "new" for result in results)
 
 
@@ -219,9 +219,15 @@ def test_upgrade_05_preserves_all_rows_and_unknown_periods(tmp_path):
                 "jobs_seen": 1, "jobs_new": 1, "jobs_deduplicated": 0, "jobs_filtered": 0, "jobs_scored": 0})
             before = {name: connection.execute(select(table)).all() for name, table in metadata.tables.items() if name != "alembic_version"}
         run_migrations(url)
+        current_metadata = MetaData()
+        current_metadata.reflect(engine)
         with engine.connect() as connection:
             for name, rows in before.items():
-                assert connection.execute(select(metadata.tables[name])).all() == rows
+                if name == "processing_runs":
+                    table = current_metadata.tables[name]
+                    assert connection.execute(select(*[column for column in table.c if column.name != "invalid_reason_counts"])).all() == rows
+                else:
+                    assert connection.execute(select(metadata.tables[name])).all() == rows
             assert connection.exec_driver_sql("SELECT salary_period FROM jobs").scalar() is None
             assert connection.exec_driver_sql("SELECT salary_period FROM applicants").scalar() is None
             assert connection.exec_driver_sql("SELECT rules_version FROM job_evaluations").scalar() is None

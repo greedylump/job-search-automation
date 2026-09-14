@@ -54,20 +54,22 @@ class ProcessingRunRepository:
     def __init__(self, session: Session):
         self.session = session
 
-    def create(self, *, source: str, jobs_seen: int = 0, jobs_new: int = 0,
-               jobs_deduplicated: int = 0, jobs_filtered: int = 0,
+    def create(self, *, source: str, records_seen: int = 0, jobs_new: int = 0,
+               jobs_deduplicated: int = 0, records_invalid: int = 0,
                jobs_scored: int = 0, ai_cost: float | None = None,
-               status: str = "running", error_message: str | None = None) -> ProcessingRun:
+               status: str = "running", error_message: str | None = None,
+               invalid_reason_counts: dict[str, int] | None = None) -> ProcessingRun:
         run = ProcessingRun(
             started_at=datetime.now(timezone.utc),
             completed_at=None,
             source=source,
             status=status,
             error_message=error_message,
-            jobs_seen=jobs_seen,
+            records_seen=records_seen,
             jobs_new=jobs_new,
             jobs_deduplicated=jobs_deduplicated,
-            jobs_filtered=jobs_filtered,
+            records_invalid=records_invalid,
+            invalid_reason_counts=dict(invalid_reason_counts) if invalid_reason_counts is not None else None,
             jobs_scored=jobs_scored,
             ai_cost=ai_cost,
         )
@@ -76,15 +78,17 @@ class ProcessingRunRepository:
         return run
 
     def finish(self, run: ProcessingRun, *, status: str = "completed", error_message: str | None = None,
-               jobs_seen: int = 0, jobs_new: int = 0, jobs_deduplicated: int = 0,
-               jobs_filtered: int = 0, jobs_scored: int = 0, ai_cost: float | None = None) -> ProcessingRun:
+               records_seen: int = 0, jobs_new: int = 0, jobs_deduplicated: int = 0,
+               records_invalid: int = 0, jobs_scored: int = 0, ai_cost: float | None = None,
+               invalid_reason_counts: dict[str, int] | None = None) -> ProcessingRun:
         run.status = status
         run.error_message = error_message
         run.completed_at = datetime.now(timezone.utc)
-        run.jobs_seen = jobs_seen
+        run.records_seen = records_seen
         run.jobs_new = jobs_new
         run.jobs_deduplicated = jobs_deduplicated
-        run.jobs_filtered = jobs_filtered
+        run.records_invalid = records_invalid
+        run.invalid_reason_counts = dict(invalid_reason_counts) if invalid_reason_counts is not None else None
         run.jobs_scored = jobs_scored
         run.ai_cost = ai_cost
         self.session.add(run)

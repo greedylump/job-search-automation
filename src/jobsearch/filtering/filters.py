@@ -18,7 +18,7 @@ class MinimumTitleRule(FilterRule):
         super().__init__("minimum_title")
 
     def should_keep(self, job: Job) -> bool:
-        return bool(job.title and len(job.title.strip()) >= 2)
+        return isinstance(job.title, str) and len(job.title.strip()) >= 2
 
 
 class JobFilter:

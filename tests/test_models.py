@@ -38,14 +38,14 @@ def test_processing_run_model_can_be_created() -> None:
         started_at=datetime.now(timezone.utc),
         completed_at=datetime.now(timezone.utc),
         source="fixture_json",
-        jobs_seen=2,
+        records_seen=2,
         jobs_new=1,
         jobs_deduplicated=1,
-        jobs_filtered=0,
+        records_invalid=0,
         jobs_scored=0,
         ai_cost=0,
     )
 
     assert run.source == "fixture_json"
-    assert run.jobs_seen == 2
+    assert run.records_seen == 2
     assert run.jobs_new == 1

@@ -23,7 +23,7 @@ from jobsearch.storage.database import build_session_factory
 from jobsearch.storage.applicant_repository import ApplicantRepository
 
 ROOT = Path(__file__).resolve().parents[1]
-HEAD = "20260913_06"
+HEAD = "20260914_08"
 
 
 @pytest.fixture
@@ -37,7 +37,18 @@ def database(tmp_path):
         factory.kw["bind"].dispose()
 
 
-def test_mutations_timestamps_and_independent_defaults(database):
+def test_mutations_timestamps_and_independent_defaults(database, monkeypatch):
+    import jobsearch.models.applicant as applicant_module
+
+    # Advance a controlled clock between writes instead of relying on OS resolution.
+    current_time = datetime(2026, 1, 1, tzinfo=timezone.utc)
+
+    class Clock:
+        @staticmethod
+        def now(tz):
+            return current_time.astimezone(tz)
+
+    monkeypatch.setattr(applicant_module, "datetime", Clock)
     _, factory = database
     with factory() as session:
         first = Applicant(id=17, full_name="Fictional One")
@@ -46,6 +57,8 @@ def test_mutations_timestamps_and_independent_defaults(database):
         session.commit()
         original = first.updated_at.replace(tzinfo=None)
         created = first.created_at.replace(tzinfo=None)
+        assert original == created == current_time.replace(tzinfo=None)
+    current_time = datetime(2026, 1, 2, tzinfo=timezone.utc)
     with factory() as session:
         first = session.get(Applicant, 17)
         first.location = "Example City"
@@ -53,7 +66,9 @@ def test_mutations_timestamps_and_independent_defaults(database):
     with factory() as session:
         first = session.get(Applicant, 17)
         assert first.updated_at > original
+        assert first.updated_at == current_time.replace(tzinfo=None)
         previous = first.updated_at
+        current_time = datetime(2026, 1, 3, tzinfo=timezone.utc)
         for field in ApplicantRepository.LIST_FIELDS:
             getattr(first, field).append("Example")
         session.commit()
@@ -61,6 +76,7 @@ def test_mutations_timestamps_and_independent_defaults(database):
         first = session.get(Applicant, 17)
         second = session.query(Applicant).filter(Applicant.id != 17).one()
         assert first.updated_at > previous
+        assert first.updated_at == current_time.replace(tzinfo=None)
         assert first.created_at == created
         for field in ApplicantRepository.LIST_FIELDS:
             assert getattr(first, field) == ["Example"]
@@ -169,8 +185,36 @@ def test_upgrade_original_03_preserves_records(tmp_path):
             assert connection.exec_driver_sql("PRAGMA integrity_check").scalar() == "ok"
             assert connection.exec_driver_sql("PRAGMA foreign_key_check").fetchall() == []
             assert compare_metadata(MigrationContext.configure(connection, opts={"compare_server_default": True}), Base.metadata) == []
-            connection.exec_driver_sql("INSERT INTO processing_runs (started_at,source,jobs_seen,jobs_new,jobs_deduplicated,jobs_filtered,jobs_scored) VALUES ('2026-01-01','test',0,0,0,0,0)")
+            connection.exec_driver_sql("INSERT INTO processing_runs (started_at,source,records_seen,jobs_new,jobs_deduplicated,records_invalid,jobs_scored) VALUES ('2026-01-01','test',0,0,0,0,0)")
             assert connection.exec_driver_sql("SELECT status FROM processing_runs ORDER BY id DESC LIMIT 1").scalar() == "running"
+    finally:
+        engine.dispose()
+
+
+def test_metric_rename_preserves_counts_in_both_directions(tmp_path):
+    url = f"sqlite:///{tmp_path / 'metrics.db'}"
+    config = Config(str(ROOT / "alembic.ini"))
+    config.attributes["database_url_override"] = url
+    command.upgrade(config, "20260913_06")
+    engine = build_session_factory(url).kw["bind"]
+    try:
+        with engine.begin() as connection:
+            connection.exec_driver_sql("INSERT INTO processing_runs (started_at,source,jobs_seen,jobs_new,jobs_deduplicated,jobs_filtered,jobs_scored,ai_cost,status,error_message) VALUES ('2026-01-01','test',13,5,3,5,0,0,'failed','example')")
+            before = connection.exec_driver_sql("SELECT * FROM processing_runs").all()
+        command.upgrade(config, "head")
+        with engine.connect() as connection:
+            after = connection.exec_driver_sql("SELECT * FROM processing_runs").all()
+            assert [tuple(row[:-1]) for row in after] == [tuple(row) for row in before]
+            assert connection.exec_driver_sql("SELECT invalid_reason_counts FROM processing_runs").scalar() is None
+            columns = {column["name"] for column in inspect(connection).get_columns("processing_runs")}
+            assert {"records_seen", "records_invalid"} <= columns
+            assert not {"jobs_seen", "jobs_filtered"} & columns
+            assert connection.exec_driver_sql("SELECT records_seen, records_invalid FROM processing_runs").one() == (13, 5)
+            assert compare_metadata(MigrationContext.configure(connection, opts={"compare_server_default": True}), Base.metadata) == []
+        command.downgrade(config, "20260913_06")
+        with engine.connect() as connection:
+            assert connection.exec_driver_sql("SELECT * FROM processing_runs").all() == before
+            assert connection.exec_driver_sql("SELECT jobs_seen, jobs_filtered FROM processing_runs").one() == (13, 5)
     finally:
         engine.dispose()
 
@@ -278,8 +322,8 @@ def test_documented_fixture_counts_and_last_seen(database, monkeypatch, fixture,
         assert run_fixture_ingestion(ROOT / "data" / fixture) == expected[0]
         with factory() as session:
             run = session.query(ProcessingRun).order_by(ProcessingRun.id.desc()).first()
-            assert run.jobs_seen == seen
-            assert (run.jobs_new, run.jobs_deduplicated, run.jobs_filtered) == expected
+            assert run.records_seen == seen
+            assert (run.jobs_new, run.jobs_deduplicated, run.records_invalid) == expected
             jobs = session.query(Job).all()
             if expected == repeated and jobs:
                 assert all(job.last_seen_at > job.first_seen_at for job in jobs)
