@@ -102,7 +102,7 @@ def run_fixture_ingestion(fixture_path: str | Path = "data/jobs_fixture.json") -
 
             normalized_jobs.append(job)
 
-        # Apply deterministic placeholder rules before INSERT.
+        # Reject invalid source records only; suitability is evaluated separately.
         filtered_jobs = JobFilter().filter(normalized_jobs)
         jobs_filtered += len(normalized_jobs) - len(filtered_jobs)
 

@@ -61,6 +61,7 @@ def view(args: argparse.Namespace) -> int:
             "remote_preference": applicant.remote_preference,
             "minimum_salary": applicant.minimum_salary,
             "salary_currency": applicant.salary_currency,
+            "salary_period": applicant.salary_period,
             "created_at": applicant.created_at.isoformat(),
             "updated_at": applicant.updated_at.isoformat(),
         }, indent=2, sort_keys=True))

@@ -1,10 +1,10 @@
 # Job Search Automation
 
-A small Python project for ingesting jobs from one source, normalizing them into a common model, storing them in SQLite, deduplicating them, applying deterministic filtering rules, and recording processing metrics.
+A small Python project for ingesting jobs from one source, normalizing them into a common model, storing them in SQLite, deduplicating them, and evaluating stored jobs against applicant preferences with explainable deterministic rules.
 
 ## Project goal for v1
 
-The first milestone intentionally only actively uses the `Job` and `ProcessingRun` models. The `JobEvaluation` and `Application` models are included in the schema for future growth, but AI scoring, Gmail integration, browser automation, and the dashboard are intentionally out of scope.
+Jobs are shared source records. Ingestion rejects invalid source records and records `ProcessingRun` metrics. Applicant-specific decisions are stored separately in `JobEvaluation`; `Application` remains available for future tracking. AI scoring, employer contact, application submission, browser automation, and dashboards are outside this milestone.
 
 ## Project structure
 
@@ -13,6 +13,7 @@ src/jobsearch/
     collectors/
     config/
     filtering/
+    evaluation/
     models/
     normalization/
     scripts/
@@ -39,7 +40,7 @@ Create or migrate the SQLite database from the Alembic chain:
 python -m jobsearch.scripts.init_db
 ```
 
-To target a different database instance in the same shell, export:
+To target a different database instance in the same shell, set:
 
 ```powershell
 $env:JOBSEARCH_DATABASE_URL = "sqlite:///./jobsearch.db"
@@ -78,7 +79,7 @@ The canonical schema manager is Alembic. Direct table creation with `Base.metada
 python -m jobsearch.scripts.init_db
 ```
 
-The migration chain in `alembic/versions/` should produce a head revision of `20260913_05` and the `jobs` table must expose the unique `source + source_job_id` index shape recorded in the model.
+The migration chain in `alembic/versions/` should produce a head revision of `20260913_06` and the `jobs` table must expose the unique `source + source_job_id` index shape recorded in the model.
 
 
 ## Applicant profiles
@@ -111,9 +112,12 @@ normalized. Invalid input and missing IDs produce nonzero exit codes.
 
 Both direct Alembic commands and application commands read `.env`; shell variables
 win over `.env`. An explicit Python `run_migrations(database_url=...)` argument wins
-over both. The final migration head is `20260913_05`: `_03` retains its historical
+over both. The final migration head is `20260913_06`: `_03` retains its historical
 `completed` default, `_04` adds applicants and nullable links, and `_05` changes
 only the default for new processing runs to `running`, preserving existing statuses.
+`_06` adds nullable salary periods and versioned deterministic evaluation history.
+Existing salary periods remain unknown; existing evaluations and nullable legacy
+applicant links are preserved.
 
 ## Fixture counts
 
@@ -124,7 +128,117 @@ for the initial run, followed by the same fixture again.
 | --- | ---: | --- | --- |
 | `jobs_fixture.json` | 2 | 2 / 0 / 0 | 0 / 2 / 0 |
 | `jobs_fixture_with_duplicates.json` | 3 | 2 / 1 / 0 | 0 / 3 / 0 |
-| `jobs_fixture_with_filtered.json` | 3 | 1 / 0 / 2 | 0 / 1 / 2 |
+| `jobs_fixture_with_filtered.json` | 3 | 2 / 0 / 1 | 0 / 2 / 1 |
 | `jobs_fixture_missing_source_id.json` | 2 | 0 / 0 / 2 | 0 / 0 / 2 |
 
 The obsolete ignored `data/test-jobsearch.db` is not used by these commands.
+
+
+The filtered fixture intentionally changed from 1 new / 2 filtered to 2 new / 1
+filtered: its onsite job is now stored. `jobs_filtered` counts invalid source
+records (missing source keys or titles shorter than two nonblank characters),
+not applicant rejections. Deduplication and last-seen updates still apply.
+Existing stored jobs can be evaluated immediately; no collection is required.
+Ingestion does not update other fields of an existing source key.
+
+## Profile-to-evaluation workflow (PowerShell)
+
+```powershell
+.venv\Scripts\Activate.ps1
+$env:JOBSEARCH_DATABASE_URL = "sqlite:///./jobsearch.db"
+python -m jobsearch.scripts.init_db
+New-Item -ItemType Directory -Force data/private
+Copy-Item data/applicant_sample.json data/private/applicant.json
+notepad data/private/applicant.json
+# Replace the fictional details with your own before creating the profile.
+python -m jobsearch.scripts.applicant_cli create --input data/private/applicant.json
+$applicantId = [int](Read-Host "Enter the applicant ID printed by create")
+python -m jobsearch.scripts.applicant_cli view --id $applicantId
+python -m jobsearch.scripts.run_fixture_ingestion
+python -m jobsearch.scripts.evaluation_cli evaluate --applicant-id $applicantId
+python -m jobsearch.scripts.evaluation_cli list --applicant-id $applicantId
+python -m jobsearch.scripts.evaluation_cli list --applicant-id $applicantId --decision keep
+# Optional: evaluate just one job using its ID from the result output.
+$jobId = [int](Read-Host "Enter an existing job ID")
+python -m jobsearch.scripts.evaluation_cli evaluate --applicant-id $applicantId --job-id $jobId
+```
+
+Profile updates still use `applicant_cli update --id $applicantId --input
+ data/private/update.json` and leave omitted fields unchanged. Run evaluation again
+after updating preferences. No real profile is bundled or assumed, and the CLI
+requires an explicit applicant ID. Missing/invalid applicant or job IDs and invalid
+arguments exit nonzero. An applicant is validated before querying jobs to evaluate.
+
+## Deterministic rules: `preferences-v1`
+
+Every configured check produces a readable reason. The overall result is `reject`
+if any check definitely fails, otherwise `review` if any check is unresolved,
+otherwise `keep`. All checks run even if an earlier check rejects. Unset preferences
+impose no restriction. There are no AI calls, scores, inferred synonyms, or currency
+conversions. A keep decision only means these configured checks passed.
+
+| Check | Behavior |
+| --- | --- |
+| Remote | Null or `any` is unrestricted. `remote`, `hybrid`, or `onsite` must match the job value after case/whitespace normalization. Missing or unfamiliar job values require review. |
+| Location | Each preferred location is an exact match after case folding and collapsing whitespace. `Seattle, WA` does not match `Seattle` or `Washington`; no geography is inferred. A concrete unmatched location rejects. Missing/ambiguous job locations require review. |
+| Target roles | A normalized target role must appear as a whole phrase in the normalized title, bounded by non-word characters or the string edges. `Data Engineer` matches `Senior Data Engineer II`, but not `Data Engineering`; `Engineer` does not match `Bioengineer`. Punctuation is literal within the phrase. Missing titles or unresolved blank preferences require review. |
+| Salary | Both job bounds must be finite, nonnegative, and ordered. Currency identifiers must match (three letters, case-insensitive), and pay periods must match. Maximum below the threshold rejects; minimum at or above it passes; a range spanning the threshold requires review. Missing or incompatible data requires review. |
+
+Location ambiguity is deliberately conservative: labels containing `remote`,
+`hybrid`, `onsite`, `anywhere`, `worldwide`, `multiple`, `various`, `tbd`, or `unknown`,
+and alternatives separated by `/`, `;`, `|`, or ` or ` require review. A remote label
+alone never establishes worldwide eligibility. `Remote - US only` remains unresolved;
+this version does not parse geographic eligibility from prose. A concrete matching
+preferred location passes even if another preference is ambiguous; otherwise an
+ambiguous preference requires review. Commas are retained as part of a single
+location, such as `Seattle, WA`.
+
+Applicant `minimum_salary` and job `salary_min`/`salary_max` use `salary_currency`
+and **`salary_period`**. Accepted applicant periods are `hourly`, `weekly`, `monthly`,
+`annual`, or null, normalized for case and surrounding whitespace. For example:
+
+```json
+{"minimum_salary": 120000, "salary_currency": "USD", "salary_period": "annual"}
+```
+
+Job fixture JSON accepts the same `salary_period` field. Unknown or omitted job
+periods require review when salary matters. Old records and older fixtures have
+unknown periods; their amounts are never silently treated as annual. No conversion
+is made between hourly, weekly, monthly, and annual amounts. A missing salary
+threshold imposes no salary check, even if currency/period are configured.
+
+## History and metrics
+
+Each new deterministic evaluation links a job and applicant and stores its decision,
+all check reasons, UTC evaluation time, rules version, and a JSON input snapshot.
+The snapshot contains the applicant's remote/location/role/salary preferences and
+the job's title, company, location, work arrangement, and compensation, plus both IDs.
+This is enough to explain the decision after records change without copying contact
+information. AI score, model-name, and cost fields remain null. Shared job status is
+never replaced with an applicant decision.
+
+A SHA-256 fingerprint covers that exact snapshot and rules version. Re-evaluating
+an identical combination reuses the existing record, enforced by a unique database
+index. Any change to a snapshotted value or the rules version creates another
+historical evaluation. Reverting to a previously evaluated combination reuses that
+older result. Contact details, skills (not checked in this version), and last-seen
+timestamps do not affect the fingerprint. Whitespace/case edits may produce a new
+snapshot even when the normalized decision stays the same.
+
+`list` shows all historical results, newest first; its decision filter applies to
+history, not just the latest result per job. Titles and companies come from the
+saved snapshot for deterministic results. Legacy evaluations show their available
+reason and are labeled with an unknown rules version.
+
+Evaluation prints counts of newly kept, rejected, and review-needed results, plus
+unchanged/skipped results. These counts are separate from ingestion `ProcessingRun`
+metrics; deterministic evaluation does not increment `jobs_scored` or create a
+processing run. Evaluation history itself is the durable audit trail. The CLI
+commits the evaluation batch together and rolls it back on failure. Run one writer
+at a time with SQLite; concurrent contention can return a database error for retry.
+
+```powershell
+python -m pytest -q --basetemp .pytest_cache/evaluation-tests
+git diff --check
+python -m alembic current
+```

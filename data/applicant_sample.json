@@ -5,13 +5,23 @@
   "location": "Seattle, WA",
   "professional_summary": "A fictional software engineer focused on automation and data workflows.",
   "experience_summary": "Five years of experience in backend and data engineering.",
-  "skills": ["Python", "SQL", "pytest"],
+  "skills": [
+    "Python",
+    "SQL",
+    "pytest"
+  ],
   "linkedin_url": "https://www.linkedin.com/in/taylor-morgan",
   "github_url": "https://github.com/taylor-morgan",
   "portfolio_url": "https://example.com/taylor-morgan",
-  "target_roles": ["Python Developer", "Data Engineer"],
-  "preferred_locations": ["Remote", "Seattle, WA"],
+  "target_roles": [
+    "Python Developer",
+    "Data Engineer"
+  ],
+  "preferred_locations": [
+    "Seattle, WA"
+  ],
   "remote_preference": "remote",
   "minimum_salary": 150000,
-  "salary_currency": "USD"
+  "salary_currency": "USD",
+  "salary_period": "annual"
 }

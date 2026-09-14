@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import String, Integer, Float, DateTime, Text, ForeignKey
+from sqlalchemy import JSON, Index, String, Integer, Float, DateTime, Text, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base
@@ -13,6 +13,7 @@ class JobEvaluation(Base):
     """Future evaluation record that remains separate from the source job record."""
 
     __tablename__ = "job_evaluations"
+    __table_args__ = (Index("uq_evaluation_inputs", "job_id", "applicant_id", "input_fingerprint", unique=True),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     job_id: Mapped[int] = mapped_column(ForeignKey("jobs.id"), nullable=False, index=True)
@@ -29,6 +30,11 @@ class JobEvaluation(Base):
     evaluated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     model_name: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     estimated_ai_cost: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+
+    rules_version: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    input_fingerprint: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    reasons: Mapped[Optional[list[dict]]] = mapped_column(JSON, nullable=True)
+    input_context: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
 
     job = relationship("Job")
     applicant = relationship("Applicant", back_populates="evaluations")

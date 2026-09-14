@@ -23,7 +23,7 @@ from jobsearch.storage.database import build_session_factory
 from jobsearch.storage.applicant_repository import ApplicantRepository
 
 ROOT = Path(__file__).resolve().parents[1]
-HEAD = "20260913_05"
+HEAD = "20260913_06"
 
 
 @pytest.fixture
@@ -165,7 +165,7 @@ def test_upgrade_original_03_preserves_records(tmp_path):
                 after = connection.exec_driver_sql(f"SELECT * FROM {table} ORDER BY id").fetchall()
                 assert [tuple(row[:len(rows[0])]) for row in after] == [tuple(row) for row in rows]
                 if table in ("applications", "job_evaluations"):
-                    assert after[0][-1] is None
+                    assert connection.exec_driver_sql(f"SELECT applicant_id FROM {table}").scalar() is None
             assert connection.exec_driver_sql("PRAGMA integrity_check").scalar() == "ok"
             assert connection.exec_driver_sql("PRAGMA foreign_key_check").fetchall() == []
             assert compare_metadata(MigrationContext.configure(connection, opts={"compare_server_default": True}), Base.metadata) == []
@@ -267,7 +267,7 @@ def test_ingestion_failure_after_jobs_queued(database, monkeypatch):
 @pytest.mark.parametrize("fixture,seen,initial,repeated", [
     ("jobs_fixture.json", 2, (2, 0, 0), (0, 2, 0)),
     ("jobs_fixture_with_duplicates.json", 3, (2, 1, 0), (0, 3, 0)),
-    ("jobs_fixture_with_filtered.json", 3, (1, 0, 2), (0, 1, 2)),
+    ("jobs_fixture_with_filtered.json", 3, (2, 0, 1), (0, 2, 1)),
     ("jobs_fixture_missing_source_id.json", 2, (0, 0, 2), (0, 0, 2)),
 ])
 def test_documented_fixture_counts_and_last_seen(database, monkeypatch, fixture, seen, initial, repeated):
@@ -286,9 +286,11 @@ def test_documented_fixture_counts_and_last_seen(database, monkeypatch, fixture,
 
 
 @pytest.mark.parametrize("value,expected", [("remote", True), ("REMOTE", True), ("hybrid", False), ("onsite", False), (None, False), ("", False)])
-def test_remote_only_filter(value, expected):
-    from jobsearch.filtering.filters import RemoteOnlyFilterRule
-    assert RemoteOnlyFilterRule().should_keep(Job(remote_type=value)) is expected
+def test_remote_preference_evaluation(value, expected):
+    from jobsearch.evaluation.rules import evaluate
+    result = evaluate({"remote_preference": "remote"}, {"remote_type": value})
+    assert (result.decision == "keep") is expected
+    assert result.decision == ("keep" if expected else "review" if not value else "reject")
 
 
 def test_private_inputs_ignored_and_sample_available():

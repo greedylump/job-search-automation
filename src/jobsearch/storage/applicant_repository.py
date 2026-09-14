@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from jobsearch.models.applicant import Applicant
+from jobsearch.evaluation.rules import PAY_PERIODS
 
 
 class ApplicantRepository:
@@ -22,7 +23,7 @@ class ApplicantRepository:
     TEXT_FIELDS = {
         "email", "phone", "location", "professional_summary", "experience_summary",
         "linkedin_url", "github_url", "portfolio_url", "salary_currency",
-        "remote_preference",
+        "remote_preference", "salary_period",
     }
     LIST_FIELDS = {"skills", "target_roles", "preferred_locations"}
 
@@ -46,6 +47,9 @@ class ApplicantRepository:
         remote = payload.get("remote_preference")
         if remote is not None and remote.strip().lower() not in self.ALLOWED_REMOTE_PREFERENCES:
             raise ValueError("remote_preference must be one of: remote, hybrid, onsite, any, or null")
+        period = payload.get("salary_period")
+        if period is not None and period.strip().lower() not in PAY_PERIODS:
+            raise ValueError("salary_period must be hourly, weekly, monthly, annual, or null")
         for key in self.LIST_FIELDS:
             if key in payload:
                 value = payload[key]
@@ -66,6 +70,8 @@ class ApplicantRepository:
             result["full_name"] = result["full_name"].strip()
         if result.get("remote_preference") is not None:
             result["remote_preference"] = result["remote_preference"].strip().lower()
+        if result.get("salary_period") is not None:
+            result["salary_period"] = result["salary_period"].strip().lower()
         for key in self.LIST_FIELDS & result.keys():
             result[key] = list(result[key])
         return result

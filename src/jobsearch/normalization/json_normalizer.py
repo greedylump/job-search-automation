@@ -35,6 +35,7 @@ class JsonJobNormalizer:
             salary_min=payload.get("salary_min"),
             salary_max=payload.get("salary_max"),
             salary_currency=payload.get("salary_currency"),
+            salary_period=payload.get("salary_period"),
             description=payload.get("description"),
             job_url=payload.get("job_url"),
             apply_url=payload.get("apply_url"),

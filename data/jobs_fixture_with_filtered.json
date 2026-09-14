@@ -41,7 +41,7 @@
     "salary_min": 120000,
     "salary_max": 150000,
     "salary_currency": "USD",
-    "description": "Has a remote_type that will be filtered by placeholder rule",
+    "description": "Valid onsite role retained for applicant-specific evaluation",
     "job_url": "https://example.com/jobs/job-gamma",
     "apply_url": "https://example.com/apply/job-gamma",
     "ats_type": "lever",

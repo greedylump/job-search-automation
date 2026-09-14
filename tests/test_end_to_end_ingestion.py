@@ -107,10 +107,10 @@ def test_filter_counts_are_recorded_in_processing_run_metrics(monkeypatch) -> No
         session = get_session(f"sqlite:///{tmp_db}")
         try:
             runs = session.query(ProcessingRun).all()
-            assert inserted_count == 1
+            assert inserted_count == 2
             assert runs[0].jobs_seen == 3
-            assert runs[0].jobs_new == 1
-            assert runs[0].jobs_filtered == 2
+            assert runs[0].jobs_new == 2
+            assert runs[0].jobs_filtered == 1
         finally:
             close_session(session)
 

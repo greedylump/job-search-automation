@@ -29,6 +29,7 @@ class Job(Base):
     salary_min: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     salary_max: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     salary_currency: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
+    salary_period: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     job_url: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
     apply_url: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)

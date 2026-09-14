@@ -31,6 +31,7 @@ class Applicant(Base):
     remote_preference: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
     minimum_salary: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     salary_currency: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
+    salary_period: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
