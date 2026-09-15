@@ -1,6 +1,6 @@
 # Job Search Automation
 
-A small Python project for ingesting jobs from one source, normalizing them into a common model, storing them in SQLite, deduplicating them, and evaluating stored jobs against applicant preferences with explainable deterministic rules.
+A small Python project for ingesting jobs from local fixtures and the Remotive public API, normalizing them into a common model, storing them in SQLite, deduplicating them, and evaluating stored jobs against applicant preferences with explainable deterministic rules.
 
 ## Project goal for v1
 
@@ -14,6 +14,7 @@ src/jobsearch/
     config/
     filtering/
     evaluation/
+    ingestion/
     models/
     normalization/
     scripts/
@@ -26,6 +27,8 @@ tests/
     test_applicants_and_migrations.py
     test_evaluation_rules.py
     test_evaluation_workflow.py
+    test_remotive_ingestion.py
+    test_source_policies.py
 ```
 
 ## Local setup
@@ -64,6 +67,190 @@ Run tests:
 python -m pytest -q
 ```
 
+## Live source: Remotive
+
+The [Remotive public API](https://github.com/remotive-com/remote-jobs-api) provides
+remote job listings without an API key. This adapter performs a single GET to
+`https://remotive.com/api/remote-jobs`, with a 30-second socket timeout, a 20 MiB
+response limit, and no automatic retries. It never visits application pages.
+Remotive advises at most four fetches daily. A persistent source policy reserves
+at least six hours between request attempts, including failed attempts. There is
+no automatic response cache. Calls before the next eligible time are skipped.
+HTTP `Retry-After` headers (seconds or HTTP dates) can extend the wait, never shorten
+it. All workers for a source must share the same database; separate databases have
+independent request budgets. Initialize/migrate the database before running workers
+concurrently. SQLite serializes request reservations; normal job writes should
+still use one writer at a time.
+
+Run from the repository root (activation is optional):
+
+```powershell
+.\.venv\Scripts\python.exe -m jobsearch.scripts.run_remotive_ingestion --database-url sqlite:///./data/remotive-live.db --show 20
+# Display matching titles without excluding other jobs from ingestion:
+.\.venv\Scripts\python.exe -m jobsearch.scripts.run_remotive_ingestion --database-url sqlite:///./data/remotive-live.db --title engineer --show 10
+```
+
+`--database-url` is optional; otherwise `JOBSEARCH_DATABASE_URL` and the normal
+default apply. The trial database above is separate from `jobsearch.db`. Repeating
+the command during the interval records a skipped run with zero input/job counts,
+a reason, and the next eligible UTC time. No HTTP request, normalization, or job
+freshness update occurs. The CLI identifies live versus replay mode. `--title` and
+`--show` affect display only; the full returned feed is ingested. Display lists
+stored jobs, so it can include older listings that have since closed. This version
+does not mark disappeared listings closed or refresh changed descriptions.
+
+### Source policy and state
+
+`JobSource` stores named collector instances with an adapter type, enabled flag,
+validated JSON settings, endpoint, collection strategy, retention policy, and minimum
+interval. The ORM model also persists request-attempt count, last attempt, last successful
+fetch, last HTTP status, and next allowed request time. Source-state timestamps are
+UTC (stored without timezone offsets for consistent SQLite comparisons).
+
+Remotive selects `full_feed` with retention `none`. Incremental cursors, conditional
+requests, and push/event sources can have their own adapters/policies later; they
+are not implemented by this adapter. An unexpected HTTP 304 is recorded as
+`not_modified`, with no job processing or timestamp refresh. No ETag is currently
+sent. Stored policies must match the adapter; the minimum interval may be increased
+but cannot be reduced below the adapter's minimum.
+
+Request slots are committed before HTTP and survive process failure or job rollback.
+`last_success_at` records a valid fetched response (or 304), not successful ingestion;
+the separate processing run records ingestion success or failure. A failed request
+does not erase the previous success timestamp. `request_attempts` counts reserved
+attempts, so a crash between reservation and HTTP can consume a slot conservatively.
+This interval policy bounds Remotive's requests; it is not yet a general token-bucket
+or multi-window rate limiter.
+
+### Explicit snapshots and replay
+
+Normal collection neither reads nor writes response files. To retain a response for
+debugging or recovery, explicitly choose a new snapshot filename:
+
+```powershell
+.\.venv\Scripts\python.exe -m jobsearch.scripts.run_remotive_ingestion --database-url sqlite:///./data/remotive-live.db --snapshot data/snapshots/remotive-response.json --show 0
+.\.venv\Scripts\python.exe -m jobsearch.scripts.run_remotive_ingestion --database-url sqlite:///./data/remotive-live.db --replay data/snapshots/remotive-response.json --show 0
+```
+
+Snapshots are only written after an eligible, valid fetch; existing files are never
+overwritten. Replay makes no HTTP request and does not advance request state or
+existing jobs' `last_seen_at`. It can recover missing jobs; new rows' seen timestamps
+then reflect replay/import time, not a fresh observation at the source. Runs have
+`collection_mode=replay` so reports can exclude these from live throughput. Snapshots
+are user-managed, with no automatic retention or cleanup. `data/snapshots/`, legacy
+`data/cache/`, and SQLite files are Git-ignored. Old cache files remain untouched and
+are ignored by normal collection; they may be supplied explicitly to `--replay`.
+
+Both collectors share `ingestion/pipeline.py`, including deduplication, source
+validation, rollback, and rejection metrics. IDs are stored under the configured
+instance name (`remotive` for the convenience command), independently of fixture IDs.
+Overlapping listings from differently named instances are currently separate jobs;
+cross-instance deduplication is not implemented. Titles, companies, employment type,
+publication dates, geographic restrictions, plain-text descriptions, and Remotive
+links are mapped to `Job`. All feed jobs are labeled remote, but that does not
+establish worldwide eligibility. Publication dates without offsets remain naive;
+the adapter does not invent a timezone. Salary text is preserved in the description,
+while numeric salary, currency, and period fields remain null. Salary evaluation
+therefore requires review when an applicant has a minimum salary requirement.
+No direct application URL, AI score, or applicant fit is inferred.
+
+Remotive requires source attribution and links back to its listings, prohibits
+republishing to third-party job boards, and states that API listings are delayed
+by 24 hours. See its [source terms](https://remotive.com/remote-jobs/api). The public
+response may be small; it is not a complete inventory of remote opportunities.
+`data/remotive_sample.json` is fictional test data. Automated tests mock HTTP and
+never contact the real API.
+
+### Live verification — 2026-09-14
+
+Under the initial cache-based implementation, one API request returned 16 listings.
+The first run stored 16 new jobs with zero
+invalid records; a cached replay recorded 16 duplicates and zero new jobs. Both
+runs completed with zero AI cost and zero jobs scored. Listings spanned software
+development, DevOps, QA, IT, marketing, writing, sales, and other categories.
+This verifies collection and storage, not applicant suitability or employer-side
+availability. Local trial results remain in `data/remotive-live.db`.
+The full suite passed **171 tests**, including offline HTTP/cache/error cases,
+normalization, source isolation, rollback, and attributed evaluation output.
+The live trial database passed integrity, foreign-key, and Alembic schema checks;
+no schema migration or extra runtime dependency was needed for this source.
+That checkpoint is historical: automatic cache replay was subsequently removed.
+
+### Source-policy checkpoint — 2026-09-15
+
+Automatic cache replay has been replaced by persistent request reservations and
+skipped-run accounting. Full regression suite: **184 passed**. After the final
+zero-cost skip adjustment, all **47 focused policy, Remotive, and ingestion tests**
+passed. Tests cover interval boundaries, concurrent reservation attempts, network
+and response failures, `Retry-After`, HTTP 304, migration preservation, and explicit
+replay without updating existing job freshness. These checks use temporary databases
+and mocked HTTP; no additional live API request was made for this change.
+
+That checkpoint used migration `20260914_09`. Existing local databases receive migrations on
+their next normal initialization/ingestion command. Historical cache files are not
+deleted or replayed automatically. No new runtime dependency is required.
+
+## Database-backed collectors
+
+`collectors/adapters.py` defines the `CollectorAdapter` Python Protocol: validation,
+collection, and normalization into `Job`. Implementations can have custom methods;
+they do not need to inherit a common base class. A small trusted registry maps adapter
+types to code. Instances and their mutable configuration live in `job_sources`, so
+adding another instance of a supported adapter requires no code change.
+
+`ingestion/runner.py` loads configured instances and uses the shared ingestion pipeline.
+`collectors/http_client.py` handles bounded HTTP reads, error/backoff recording, and
+explicit snapshots. `SourceRepository` handles atomic reservations and configuration
+updates. All Remotive instances in one database share a request budget, including
+disabled instances' outstanding waits. Adding an instance cannot bypass that budget.
+
+Save this example as a JSON configuration file, such as `data/private/collector.json`:
+
+```json
+{"name": "sample-jobs", "adapter_type": "json_fixture", "settings": {"path": "data/jobs_fixture.json"}}
+```
+
+Run commands from the repository root; fixture paths are relative to the working directory:
+
+```powershell
+python -m jobsearch.scripts.collectors_cli create --input data/private/collector.json
+python -m jobsearch.scripts.collectors_cli list
+python -m jobsearch.scripts.collectors_cli run --name sample-jobs
+python -m jobsearch.scripts.collectors_cli run --all
+```
+
+For a Remotive instance, use `adapter_type: "remotive"` and optional settings such as
+`{"search": "python", "category": "software-dev"}`. Adapter defaults supply the public
+endpoint and minimum six-hour interval. These settings filter the API request itself.
+Currently supported types are `remotive` and `json_fixture`.
+
+Update an instance using a partial JSON file, for example `{"enabled": false}`:
+
+```powershell
+python -m jobsearch.scripts.collectors_cli update --name sample-jobs --input data/private/collector-update.json
+```
+
+Omitted fields remain unchanged; supplied `settings` replaces the entire settings
+object. Names, adapter types, and request history cannot be edited through this API.
+Invalid updates roll back. Intervals may be increased; existing waits are never
+shortened. An optional `--database-url` goes before the subcommand.
+
+`run --all` makes one pass over enabled rows, trying never/least recently attempted
+instances first so shared budgets do not always favor the same instance. Failures
+are reported without blocking other instances. This is not a background scheduler.
+The original fixture and Remotive commands remain available and bootstrap their
+default configuration rows; the fixture command updates its configured input path.
+Normal collection uses no response cache.
+
+Migration `20260915_10` adds the configuration columns and preserves existing request
+history. Legacy source rows receive the Remotive adapter, enabled status, and empty
+settings. No additional runtime dependency is required.
+
+Verification on 2026-09-15: **198 tests passed**, covering configuration validation,
+CLI management, multiple instances, shared request budgets and rotation, failure
+isolation, and migration upgrade/downgrade preservation. Tests used temporary
+databases and mocked HTTP; no additional live API request was made.
+
 ## Configuration
 
 This project reads configuration from environment variables with the `JOBSEARCH_` prefix. Example:
@@ -83,7 +270,7 @@ The canonical schema manager is Alembic. Direct table creation with `Base.metada
 python -m jobsearch.scripts.init_db
 ```
 
-The migration chain in `alembic/versions/` should produce a head revision of `20260914_08` and the `jobs` table must expose the unique `source + source_job_id` index shape recorded in the model.
+The migration chain in `alembic/versions/` should produce a head revision of `20260915_10` and the `jobs` table must expose the unique `source + source_job_id` index shape recorded in the model.
 
 
 ## Applicant profiles
@@ -116,7 +303,7 @@ normalized. Invalid input and missing IDs produce nonzero exit codes.
 
 Both direct Alembic commands and application commands read `.env`; shell variables
 win over `.env`. An explicit Python `run_migrations(database_url=...)` argument wins
-over both. The final migration head is `20260914_08`: `_03` retains its historical
+over both. The final migration head is `20260915_10`: `_03` retains its historical
 `completed` default, `_04` adds applicants and nullable links, and `_05` changes
 only the default for new processing runs to `running`, preserving existing statuses.
 `_06` adds nullable salary periods and versioned deterministic evaluation history.
@@ -125,6 +312,10 @@ applicant links are preserved.
 `_07` renames `jobs_seen` to `records_seen` and `jobs_filtered` to
 `records_invalid`, preserving historical values without recalculating them.
 `_08` adds nullable `invalid_reason_counts`; historical breakdowns remain unknown.
+`_09` adds source policies/request state and nullable run-mode/skip fields. Historical
+run modes remain unknown. If historical Remotive runs exist, the migration initializes
+a conservative next-allowed time six hours after the latest run, without inventing
+HTTP attempt/success times. Request-attempt counting starts with the new tracking.
 
 ## Fixture counts
 
@@ -188,8 +379,8 @@ Verification at this checkpoint:
 - Database integrity and foreign-key checks passed. Temporary verification files
   were removed; the project database was not migrated by this verification.
 
-The fixture-ingestion phase is ready for review. The next implementation milestone
-is one real job source with conservative collection and reliable error handling.
+This checkpoint completed fixture ingestion. The subsequent Remotive milestone
+above adds a real source with conservative collection and error handling.
 AI scoring, application automation, and deployment remain later work.
 
 ## Profile-to-evaluation workflow (PowerShell)

@@ -17,7 +17,7 @@ from jobsearch.collectors.json_fixture_collector import JsonFixtureCollector
 
 @pytest.mark.parametrize("wrapped", [False, True])
 def test_malformed_entries_are_counted_without_losing_valid_jobs(tmp_path, monkeypatch, wrapped, caplog):
-    caplog.set_level("INFO", logger=ingestion_module.__name__)
+    caplog.set_level("INFO", logger="jobsearch.ingestion.pipeline")
     database_url = f"sqlite:///{tmp_path / 'jobs.db'}"
     monkeypatch.setenv("JOBSEARCH_DATABASE_URL", database_url)
     entries = [

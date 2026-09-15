@@ -11,3 +11,5 @@ __pycache__/
 # Private applicant input and consistent local database backups
 data/private/
 data/backups/
+data/cache/
+data/snapshots/

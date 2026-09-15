@@ -225,7 +225,8 @@ def test_upgrade_05_preserves_all_rows_and_unknown_periods(tmp_path):
             for name, rows in before.items():
                 if name == "processing_runs":
                     table = current_metadata.tables[name]
-                    assert connection.execute(select(*[column for column in table.c if column.name != "invalid_reason_counts"])).all() == rows
+                    added = {"invalid_reason_counts", "collection_mode", "skip_reason", "next_eligible_at"}
+                    assert connection.execute(select(*[column for column in table.c if column.name not in added])).all() == rows
                 else:
                     assert connection.execute(select(metadata.tables[name])).all() == rows
             assert connection.exec_driver_sql("SELECT salary_period FROM jobs").scalar() is None

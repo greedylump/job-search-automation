@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import argparse
+from sqlalchemy.orm import object_session
+from jobsearch.models import JobSource
 
 from jobsearch.config.settings import get_settings
 from jobsearch.scripts.init_db import run_migrations
@@ -25,6 +27,10 @@ def _print_result(evaluation) -> None:
     print(f"evaluation={evaluation.id} job={evaluation.job_id} | {snapshot.get('title') or '(untitled)'} | "
           f"{snapshot.get('company') or '(unknown company)'} | {evaluation.decision or 'legacy'}")
     print(f"  evaluated={evaluation.evaluated_at} rules={evaluation.rules_version or 'legacy/unknown'}")
+    session = object_session(evaluation)
+    config = session.get(JobSource, evaluation.job.source) if session is not None else None
+    if evaluation.job.source == "remotive" or (config is not None and config.adapter_type == "remotive"):
+        print(f"  Source: Remotive | {evaluation.job.job_url or 'No source link supplied'}")
     for reason in evaluation.reasons or []:
         print(f"  {reason['check']} [{reason['outcome']}]: {reason['message']}")
     if not evaluation.reasons:

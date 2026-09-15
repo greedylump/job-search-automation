@@ -23,7 +23,7 @@ from jobsearch.storage.database import build_session_factory
 from jobsearch.storage.applicant_repository import ApplicantRepository
 
 ROOT = Path(__file__).resolve().parents[1]
-HEAD = "20260914_08"
+HEAD = "20260915_10"
 
 
 @pytest.fixture
@@ -204,7 +204,7 @@ def test_metric_rename_preserves_counts_in_both_directions(tmp_path):
         command.upgrade(config, "head")
         with engine.connect() as connection:
             after = connection.exec_driver_sql("SELECT * FROM processing_runs").all()
-            assert [tuple(row[:-1]) for row in after] == [tuple(row) for row in before]
+            assert [tuple(row[:len(before[0])]) for row in after] == [tuple(row) for row in before]
             assert connection.exec_driver_sql("SELECT invalid_reason_counts FROM processing_runs").scalar() is None
             columns = {column["name"] for column in inspect(connection).get_columns("processing_runs")}
             assert {"records_seen", "records_invalid"} <= columns

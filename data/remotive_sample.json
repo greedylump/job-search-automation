@@ -1,0 +1,27 @@
+{
+  "0-legal-notice": "Synthetic test data shaped like the Remotive API; not real vacancies",
+  "job-count": 2,
+  "jobs": [
+    {
+      "id": 101,
+      "url": "https://remotive.com/remote-jobs/software-dev/fictional-engineer-101",
+      "title": "Python &amp; Data Engineer",
+      "company_name": "Fictional Example Co",
+      "category": "Software Development",
+      "job_type": "full_time",
+      "publication_date": "2026-09-01T10:00:00",
+      "candidate_required_location": "USA, Canada",
+      "salary": "$100,000 - $140,000",
+      "description": "<p>Build Python pipelines.</p><ul><li>SQL &amp; testing</li></ul>"
+    },
+    {
+      "id": 102,
+      "url": "https://remotive.com/remote-jobs/software-dev/fictional-developer-102",
+      "title": "Backend Developer",
+      "company_name": "Fictional Second Co",
+      "publication_date": "2026-09-02T11:00:00Z",
+      "candidate_required_location": "Worldwide",
+      "description": "<p>Maintain a backend service.</p>"
+    }
+  ]
+}

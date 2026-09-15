@@ -27,3 +27,6 @@ class ProcessingRun(Base):
     invalid_reason_counts: Mapped[Optional[dict[str, int]]] = mapped_column(JSON, nullable=True)
     jobs_scored: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     ai_cost: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    collection_mode: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
+    skip_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    next_eligible_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
