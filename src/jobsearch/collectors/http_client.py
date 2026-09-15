@@ -38,19 +38,23 @@ def fetch_records(*, source: JobSource, state: SourceRepository, endpoint: str,
             raw = response.read(max_bytes + 1)
     except HTTPError as exc:
         next_allowed = state.finish(source.name, http_status=exc.code, success=exc.code == 304,
+            attempt_id=source.request_attempt_id, outcome="not_modified" if exc.code == 304 else "http_error",
             retry_at=retry_after(exc.headers.get("Retry-After") if exc.headers else None, now))
         if exc.code == 304:
             raise SourceSkipped("Server returned Not Modified", next_allowed, status="not_modified") from exc
         raise RuntimeError(f"{source.name} HTTP {exc.code}; request interval/backoff recorded; no retry attempted.") from exc
-    except (URLError, TimeoutError) as exc:
-        state.finish(source.name, http_status=None, success=False)
+    except (URLError, OSError) as exc:
+        state.finish(source.name, http_status=status, success=False,
+                     attempt_id=source.request_attempt_id, outcome="network_error")
         raise RuntimeError(f"{source.name} request failed or timed out; request interval recorded; no retry attempted.") from exc
     try:
         records = decode(raw)
     except ValueError:
-        state.finish(source.name, http_status=status, success=False)
+        state.finish(source.name, http_status=status, success=False,
+                     attempt_id=source.request_attempt_id, outcome="invalid_response")
         raise
-    state.finish(source.name, http_status=status, success=True)
+    state.finish(source.name, http_status=status, success=True,
+                 attempt_id=source.request_attempt_id, outcome="success")
     if snapshot_path is not None:
         snapshot_path.parent.mkdir(parents=True, exist_ok=True)
         with snapshot_path.open("xb") as handle:

@@ -6,6 +6,7 @@ from .job_evaluation import JobEvaluation
 from .application import Application
 from .processing_run import ProcessingRun
 from .job_source import JobSource
+from .request_attempt import RequestAttempt
 
 __all__ = [
     "Applicant",
@@ -14,4 +15,5 @@ __all__ = [
     "Application",
     "ProcessingRun",
     "JobSource",
+    "RequestAttempt",
 ]

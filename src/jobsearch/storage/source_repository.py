@@ -5,6 +5,8 @@ from sqlalchemy import select, text
 
 from jobsearch.collectors.source import SourceDefinition, SourceSkipped
 from jobsearch.models.job_source import JobSource
+from jobsearch.models import RequestAttempt, ProcessingRun
+from jobsearch.collectors.run_context import processing_run_id
 from jobsearch.storage.database import get_session, close_session
 
 
@@ -106,6 +108,19 @@ class SourceRepository:
             source.next_allowed_at = now + timedelta(seconds=source.min_interval_seconds)
             source.last_http_status = None
             source.request_attempts += 1
+            run_id = processing_run_id.get()
+            if run_id is None:
+                # Low-level callers still receive a durable parent run.
+                from jobsearch.storage.repositories import ProcessingRunRepository
+                run = ProcessingRunRepository(session).create(source=name, ai_cost=0.0)
+                run.collection_mode = "request"
+                run_id = run.id
+            attempt = RequestAttempt(processing_run_id=run_id, source=name,
+                endpoint=source.endpoint, reserved_at=now, outcome="reserved",
+                next_allowed_at=source.next_allowed_at)
+            session.add(attempt)
+            session.flush()
+            source.request_attempt_id = attempt.id
             session.commit()
             return source
         except Exception:
@@ -115,7 +130,8 @@ class SourceRepository:
             close_session(session)
 
     def finish(self, name: str, *, http_status: int | None, success: bool,
-               retry_at: datetime | None = None) -> datetime | None:
+               retry_at: datetime | None = None, attempt_id: int | None = None,
+               outcome: str | None = None) -> datetime | None:
         session = get_session(self.database_url)
         try:
             session.execute(text("BEGIN IMMEDIATE"))
@@ -125,6 +141,19 @@ class SourceRepository:
                 source.last_success_at = utcnow()
             if retry_at is not None and (source.next_allowed_at is None or retry_at > source.next_allowed_at):
                 source.next_allowed_at = retry_at
+            if attempt_id is not None:
+                attempt = session.get(RequestAttempt, attempt_id)
+                if attempt is None or attempt.source != name or attempt.completed_at is not None:
+                    raise ValueError("Unknown or already completed request attempt")
+                attempt.completed_at = utcnow()
+                attempt.http_status = http_status
+                attempt.retry_at = retry_at
+                attempt.next_allowed_at = source.next_allowed_at
+                attempt.outcome = outcome or ("success" if success else "failed")
+                run = session.get(ProcessingRun, attempt.processing_run_id)
+                if run.collection_mode == "request":
+                    run.status = "completed" if success else "failed"
+                    run.completed_at = attempt.completed_at
             session.commit()
             return source.next_allowed_at
         except Exception:

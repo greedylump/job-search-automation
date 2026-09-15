@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from collections.abc import Callable
 from typing import Any
 from jobsearch.collectors.source import SourceSkipped
+from jobsearch.collectors.run_context import processing_run_id as active_run_id
 
 from jobsearch.config.settings import get_settings
 from jobsearch.filtering.filters import JobFilter
@@ -81,7 +82,11 @@ def run_ingestion(*, source: str, collect: Callable[[], list[Any]],
         session.commit()
         processing_run_id = processing_run.id
 
-        raw_jobs = collect()
+        token = active_run_id.set(processing_run_id)
+        try:
+            raw_jobs = collect()
+        finally:
+            active_run_id.reset(token)
 
         repo = JobRepository(session)
         seen_keys_in_batch: set[tuple[str, str]] = set()

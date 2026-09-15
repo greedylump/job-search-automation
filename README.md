@@ -270,7 +270,7 @@ The canonical schema manager is Alembic. Direct table creation with `Base.metada
 python -m jobsearch.scripts.init_db
 ```
 
-The migration chain in `alembic/versions/` should produce a head revision of `20260915_10` and the `jobs` table must expose the unique `source + source_job_id` index shape recorded in the model.
+The migration chain in `alembic/versions/` should produce a head revision of `20260915_11` and the `jobs` table must expose the unique `source + source_job_id` index shape recorded in the model.
 
 
 ## Applicant profiles
@@ -303,7 +303,7 @@ normalized. Invalid input and missing IDs produce nonzero exit codes.
 
 Both direct Alembic commands and application commands read `.env`; shell variables
 win over `.env`. An explicit Python `run_migrations(database_url=...)` argument wins
-over both. The final migration head is `20260915_10`: `_03` retains its historical
+over both. The final migration head is `20260915_11`: `_03` retains its historical
 `completed` default, `_04` adds applicants and nullable links, and `_05` changes
 only the default for new processing runs to `running`, preserving existing statuses.
 `_06` adds nullable salary periods and versioned deterministic evaluation history.
@@ -316,6 +316,23 @@ applicant links are preserved.
 run modes remain unknown. If historical Remotive runs exist, the migration initializes
 a conservative next-allowed time six hours after the latest run, without inventing
 HTTP attempt/success times. Request-attempt counting starts with the new tracking.
+
+`_11` adds `request_attempts`, linked by foreign key to each processing run and
+collector. A reservation and its rate-limit update commit together before HTTP.
+Each row retains the base endpoint (without query parameters or credentials),
+reservation/completion times, outcome, HTTP status, parsed retry deadline, and the
+next allowed time at completion. Outcomes include `success`, `http_error`,
+`network_error`, `invalid_response`, and `not_modified`. An unfinished `reserved`
+row means the outcome is unknown; it does not prove a request reached the server.
+Request results survive subsequent ingestion rollback. Skips, fixtures, and replay
+create no HTTP attempt rows. Direct low-level reservations create a parent run in
+`request` mode; normal ingestion links attempts to its existing `live` run.
+
+Historical HTTP attempts are not reconstructed from old runs or aggregate counts.
+The ledger moves with the SQLite database during backup/deployment; copying code
+alone does not transfer it. All live workers must continue sharing one request
+budget database. This change was verified with the existing 198-test regression
+suite and six new request-ledger tests, using temporary databases and mocked HTTP.
 
 ## Fixture counts
 
