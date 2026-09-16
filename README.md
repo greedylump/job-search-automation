@@ -69,6 +69,9 @@ python -m pytest -q
 
 ## Live source: Remotive
 
+For additional sources, request shapes, limits and collection planning, see the
+[job API research catalog](JOB_API_RESEARCH.md).
+
 The [Remotive public API](https://github.com/remotive-com/remote-jobs-api) provides
 remote job listings without an API key. This adapter performs a single GET to
 `https://remotive.com/api/remote-jobs`, with a 30-second socket timeout, a 20 MiB
@@ -137,7 +140,7 @@ overwritten. Replay makes no HTTP request and does not advance request state or
 existing jobs' `last_seen_at`. It can recover missing jobs; new rows' seen timestamps
 then reflect replay/import time, not a fresh observation at the source. Runs have
 `collection_mode=replay` so reports can exclude these from live throughput. Snapshots
-are user-managed, with no automatic retention or cleanup. `data/snapshots/`, legacy
+are user-managed; the opt-in storage maintenance command below can expire them. `data/snapshots/`, legacy
 `data/cache/`, and SQLite files are Git-ignored. Old cache files remain untouched and
 are ignored by normal collection; they may be supplied explicitly to `--replay`.
 
@@ -215,6 +218,8 @@ Run commands from the repository root; fixture paths are relative to the working
 ```powershell
 python -m jobsearch.scripts.collectors_cli create --input data/private/collector.json
 python -m jobsearch.scripts.collectors_cli list
+python -m jobsearch.scripts.collectors_cli status --limit 10
+python -m jobsearch.scripts.collectors_cli status --name remotive --limit 5
 python -m jobsearch.scripts.collectors_cli run --name sample-jobs
 python -m jobsearch.scripts.collectors_cli run --all
 ```
@@ -242,6 +247,24 @@ The original fixture and Remotive commands remain available and bootstrap their
 default configuration rows; the fixture command updates its configured input path.
 Normal collection uses no response cache.
 
+`status` displays enabled flags, the shared adapter budget's next eligible UTC
+time, total reserved attempts, and unfinished attempts with unknown outcomes.
+It shows recent HTTP results, backoff deadlines, linked ingestion counts, and
+recent runs (including skips and replays without HTTP). `--limit` accepts 1-100
+and bounds each collector's recent attempts and runs separately. The unfinished
+count includes older attempts outside that limit. A disabled collector stays
+disabled even after its wait expires. The command makes no HTTP requests, but
+like other management commands it initializes/migrates the selected database.
+
+Status verification (2026-09-15): **209 tests passed**. After a SQLite backup to
+`data/backups/remotive-before-status-verification.db`, the trial database
+`data/remotive-live.db` migrated from `_08` to `_11`. One live request at
+17:08 UTC returned HTTP 200 and 15 listings: 0 new, 15 duplicates, 0 invalid.
+Attempt 1 links to completed run 3. The immediate repeat recorded skipped run 4
+without another attempt; next eligible time was 23:08 UTC. Historical runs remain
+labeled unknown mode. This database is still the local trial database, not a
+deployed or merged production database.
+
 Migration `20260915_10` adds the configuration columns and preserves existing request
 history. Legacy source rows receive the Remotive adapter, enabled status, and empty
 settings. No additional runtime dependency is required.
@@ -252,6 +275,149 @@ isolation, and migration upgrade/downgrade preservation. Tests used temporary
 databases and mocked HTTP; no additional live API request was made.
 
 ## Configuration
+
+### Shared HTTP request execution
+
+Migration `_13` adds nullable method, purpose, sanitized pagination metadata,
+response bytes and returned-record counts to `RequestAttempt`. Existing attempts
+remain unchanged with unknown values for the new fields.
+
+HTTP adapters call `fetch_records` with a `build_request(config)` callback returning
+a `RequestSpec` and a decoder returning a record list. The client loads current
+configuration, checks permission, constructs the request, and atomically reserves
+budget plus a ledger row before sending. Remotive no longer reserves requests itself.
+Every call to the client, including a future page, detail, taxonomy or explicit retry,
+must get a fresh reservation. There are no automatic retries. The production opener
+does not follow redirects: a 3xx is recorded without an unbudgeted second request.
+
+Metadata retains numeric page/offset/skip/limit/count values and hashes opaque cursor
+values. Other query values, authentication headers and raw cursor values are omitted.
+Trusted adapters must keep secrets and sensitive data out of URL paths, which are
+recorded without query strings. Request purpose is `list`, `detail` or `taxonomy`.
+Transport/HTTP errors suppress raw exception details that could contain credential
+URLs. Decoder errors are recorded as invalid responses without retaining body text.
+The shared client enforces response-size limits before decoding; status output shows
+the new metadata and response metrics. Byte counts represent bytes read, including
+the extra byte used to detect oversized responses, not necessarily full body size.
+
+This centralizes requests for the current adapter and defines the path future
+adapters must use; it is not a sandbox preventing trusted Python code from opening
+its own sockets. Bounded pagination and the opt-in worker are described below.
+No new live request was made
+for this change and existing local databases were not migrated during testing.
+
+### Collector schedules and shared budgets
+
+Migration `_12` separates refresh scheduling from HTTP quotas. `JobSource` now
+stores `refresh_interval_seconds`, `next_due_at`, `last_complete_refresh_at`, and
+its assigned `budget_name`. `RequestBudget` holds shared request spacing and
+backoff; `RequestBudgetWindow` holds rolling-window quotas. Request attempts link
+to the budget they consumed. Remotive instances always use the `remotive` budget;
+collector configuration cannot change this assignment to bypass limits.
+
+Set a board's refresh interval through the existing collector update command with
+JSON such as `{"refresh_interval_seconds":43200}`. This affects that board alone.
+Successful ingestion or a single-response 304 advances the complete-refresh time.
+Partial/failed runs defer the next attempt without marking a complete refresh;
+replay leaves the schedule unchanged. New instances default to zero additional refresh delay; their HTTP
+budget still applies. Migrated HTTP instances use their prior request interval as
+their refresh interval, but unknown historical completion times remain null.
+
+Update an existing shared budget with:
+
+```powershell
+python -m jobsearch.scripts.collectors_cli budget-update --name remotive --input data/private/budget.json
+```
+
+Example budget input (replaces its configured rules):
+
+```json
+{"min_interval_seconds":21600,"windows":[{"window_seconds":86400,"max_requests":4}]}
+```
+
+All windows apply together. They are rolling durations, not calendar-day/month
+reset rules. Each committed reservation consumes quota even if HTTP fails or its
+outcome is unknown. The count uses durable request history across every board in
+the budget. Do not purge ledger history needed by active windows. Remotive spacing
+cannot be reduced below six hours. Updates preserve existing spacing/backoff and
+active window waits. The old collector `min_interval_seconds` setting remains a
+compatibility control that can only increase shared spacing; prefer `budget-update`
+for shared policy and `refresh_interval_seconds` for board scheduling.
+
+Migration preserves old collector/attempt fields and copies the longest outstanding
+wait (including disabled collectors) and strictest spacing into each shared budget.
+It does not fabricate missing request history or enable new quota windows. Existing
+collector request-state fields remain compatibility/history fields; shared budgets
+are now authoritative for HTTP permission. `status` reports both schedule and budget.
+
+Future adapters
+must select their trusted budget scope; arbitrary account/IP budget assignment is
+not exposed yet. The migration was tested on temporary databases; local live
+databases are upgraded on their next initialization command.
+
+### Bounded pagination and opt-in collection worker
+
+Migration `_14` adds durable continuation state, collector lease fields, and nullable
+`ProcessingRun.pages_collected`. Existing history is preserved. Nothing starts
+automatically after installing or migrating the project.
+
+```powershell
+# One pass over due, enabled live collectors:
+python -m jobsearch.scripts.collection_worker --database-url sqlite:///./data/remotive-live.db --once
+# Foreground worker, explicitly enabled; Ctrl+C stops after the current bounded run:
+python -m jobsearch.scripts.collection_worker --database-url sqlite:///./data/remotive-live.db --loop --poll-seconds 60 --max-collectors 20
+```
+
+These commands can make real requests. The worker excludes fixture adapters, checks
+board schedules and shared budgets, and rechecks eligibility between collectors.
+It uses one serial worker by default, polls no faster than once per minute, and
+handles SIGINT/SIGTERM without starting another collector. No operating-system
+service is installed. Configure a positive board refresh interval for future feeds;
+zero means the board itself imposes no delay beyond polling and its HTTP budget.
+
+`PaginatedAdapter` is an optional mixin for future paginated sources. Implement its
+`build_page_request(config, cursor)` and `decode_page(raw)` returning a `Page`, plus
+the usual validation/normalization/defaults contract. It uses the shared HTTP client
+for every page. Default bounds are 5 pages, 10,000 records and 20 MiB per response;
+adapter overrides allow at most 100 pages and 100,000 records per run. Response-size
+limits still apply separately to each request. Repeated cursors stop the run.
+
+Resume is off by default: the next run restarts at the beginning and deduplicates.
+An adapter must explicitly set `resume_safe=True` only when its API guarantees a
+stable continuation. Mutable offset feeds may skip jobs when resumed; do not opt
+them in without such a guarantee. Remotive remains a single-response feed and does
+not invent pagination. The pagination path is verified with a mocked test adapter;
+no additional live provider was installed as part of this milestone.
+
+Successful pages and the continuation checkpoint commit together with run metrics.
+If more pages remain, status is `partial`; if no pages were accepted, `deferred`.
+Budget waits, page/record caps and later-page errors never mark the board completely
+refreshed. Continuation is delayed by at least five minutes and any provider wait.
+A first-page failure remains `failed` and is also deferred at least five minutes.
+There is no immediate HTTP retry. A record cap never saves a cursor past a discarded
+page. Ingestion rollback leaves the previous checkpoint intact; HTTP history remains.
+Completion clears the checkpoint and advances the board's refresh schedule atomically.
+No absent listing is marked closed. Adjust insufficient page caps before relying
+on a full refresh of a large source that cannot safely resume.
+
+Collectors use atomic five-minute leases, renewed before each HTTP request. An
+expired owner cannot reserve more requests or commit ingestion; a later run can
+recover after expiry. Interrupted HTTP attempts retain unknown outcomes. This
+does not cancel an already-running socket operation. Configuration changes other
+than enable/disable are rejected during a live lease; changing endpoint/settings
+afterward clears old continuation state. Replay also claims a lease but does not
+advance live checkpoints. Use one worker with SQLite; leases additionally guard
+against accidental overlapping invocations.
+
+Status displays whether continuation exists without exposing its value. Raw opaque
+continuations are operational state in the private database; attempt metadata still
+stores only cursor hashes. Keep the database and its backups private during transfer
+to the VPS. No daemon or live fetch was started to verify this implementation.
+
+Verification: full suite **226 passed**, followed by **27 focused tests passed**
+after the final partial-run backoff and CLI redaction adjustments. Tests cover
+resume, rollback, quota exhaustion, page failure, cursor loops, expired leases,
+due-only selection and worker shutdown with temporary databases and mocked HTTP.
 
 This project reads configuration from environment variables with the `JOBSEARCH_` prefix. Example:
 
@@ -270,7 +436,7 @@ The canonical schema manager is Alembic. Direct table creation with `Base.metada
 python -m jobsearch.scripts.init_db
 ```
 
-The migration chain in `alembic/versions/` should produce a head revision of `20260915_11` and the `jobs` table must expose the unique `source + source_job_id` index shape recorded in the model.
+The migration chain in `alembic/versions/` should produce a head revision of `20260916_15` and the `jobs` table must expose the unique `source + source_job_id` index shape recorded in the model.
 
 
 ## Applicant profiles
@@ -303,7 +469,7 @@ normalized. Invalid input and missing IDs produce nonzero exit codes.
 
 Both direct Alembic commands and application commands read `.env`; shell variables
 win over `.env`. An explicit Python `run_migrations(database_url=...)` argument wins
-over both. The final migration head is `20260915_11`: `_03` retains its historical
+over both. The final migration head is `20260916_15`: `_03` retains its historical
 `completed` default, `_04` adds applicants and nullable links, and `_05` changes
 only the default for new processing runs to `running`, preserving existing statuses.
 `_06` adds nullable salary periods and versioned deterministic evaluation history.
@@ -467,6 +633,89 @@ is made between hourly, weekly, monthly, and annual amounts. A missing salary
 threshold imposes no salary check, even if currency/period are configured.
 
 ## History and metrics
+
+### Storage protection and retention (September 16 checkpoint)
+
+Checkpoint review: **237 tests passed**. A separate-process CLI walkthrough using
+a fresh temporary SQLite database verified fixture ingestion, persistent manual
+pause, blocked ingestion, explicit resume, and deduplication after resumption.
+Both app-size and free-disk thresholds refused unsafe resume and remained paused
+after thresholds recovered until explicitly resumed. Alembic reported
+`20260916_15 (head)`; integrity and foreign-key checks passed, with zero HTTP
+attempts. Review also added the global pause reason to collector status and fixed
+snapshot maintenance's rejection of relative paths resolving to a filesystem root.
+Existing live databases and VPS configuration were not changed by verification.
+
+Migration `20260916_15` adds a singleton `collection_control` row. Collection pauses
+survive process restarts and deployment when the database is transferred. No service
+is installed or started by this change. Existing databases are upgraded when an
+application command runs migrations; tests use temporary databases.
+
+The following environment settings are tunable (decimal bytes, not GiB):
+
+| Setting | Default |
+| --- | ---: |
+| `JOBSEARCH_STORAGE_MAX_BYTES` | 8000000000 (8 GB) |
+| `JOBSEARCH_STORAGE_WARN_BYTES` | 6000000000 (6 GB) |
+| `JOBSEARCH_DISK_MIN_FREE_BYTES` | 5000000000 (5 GB, independent of app usage) |
+| `JOBSEARCH_DISK_WARN_FREE_BYTES` | 7000000000 (7 GB) |
+| `JOBSEARCH_LOG_MAX_BYTES` | 100000000 (approximately 100 MB across 10 files) |
+| `JOBSEARCH_SNAPSHOT_RETENTION_DAYS` | 7 |
+
+Accounting includes all regular files beneath `JOBSEARCH_DATA_DIR` (default `data`),
+the selected SQLite database and its WAL/SHM/journal companions, and additional
+directories in `JOBSEARCH_STORAGE_DIRS` (a JSON array of paths). Put backups and
+generated documents in these directories. Overlapping directories count files once.
+Do not include the whole VPS or repository as an app directory. Symlinks within
+tracked directories cause a fail-closed pause; configured roots themselves resolve
+to their targets. Free space is checked on storage destinations and filesystems
+encountered during accounting. Untracked files still consume filesystem free space.
+Snapshots must be written inside a tracked directory.
+
+Checks run before collection, each HTTP request, and batch persistence. Breaches or
+unreadable storage latch a global pause. Explicit ingestion records `status=paused`
+and the reason in `skip_reason`; the worker does not create skipped runs every poll.
+An in-flight request may finish and retains its attempt ledger. If a batch cannot
+be saved safely, no jobs or continuation checkpoint from that batch are committed;
+resume re-fetches from the prior checkpoint, subject to normal provider budgets.
+Already committed batches remain intact. Warnings log on entering a warning state
+within a process; pause/resume transitions are logged. These checks are not a hard
+filesystem quota: concurrent writers and a batch can overshoot between checks.
+Use one worker and leave operational headroom. Metadata writes are still needed
+to record pauses; a completely full disk can prevent even those writes.
+
+```powershell
+python -m jobsearch.scripts.storage_cli --database-url sqlite:///./data/remotive-live.db status
+python -m jobsearch.scripts.storage_cli --database-url sqlite:///./data/remotive-live.db pause
+python -m jobsearch.scripts.storage_cli --database-url sqlite:///./data/remotive-live.db resume
+```
+
+Status includes usage, thresholds, warning, and pause reason, and latches a detected
+breach. Resume remeasures storage and refuses while unsafe (exit code 2 while
+paused). Neither restart nor cleanup automatically resumes collection. Pauses also
+block fixture/replay ingestion, but leave inspection and maintenance available.
+
+The collection worker rotates `data/logs/collection.log` (or the configured data
+directory). Console logs remain available; systemd journal limits are a separate
+deployment task. Direct CLI commands currently log to the console only.
+
+Snapshot maintenance is opt-in and **dry run by default**. It lists exact paths and
+byte totals; `--apply` deletes only old regular `.json` files directly in the chosen
+directory, never recursively, and skips symlinks. Use a dedicated disposable
+snapshot directory, not an applicant-input or fixture directory.
+
+```powershell
+python -m jobsearch.scripts.storage_maintenance --snapshot-dir data/snapshots
+python -m jobsearch.scripts.storage_maintenance --snapshot-dir data/snapshots --days 7 --apply
+```
+
+No database history is deleted yet. Planned detailed retention is 180 days for
+request attempts and 365 days for runs, but deletion must first preserve daily
+aggregates, foreign-key relationships, and every attempt still needed by active
+budget windows. Job/evaluation deletion remains disabled; application-linked
+history must be preserved. Backup creation/rotation, database compaction, scheduled
+maintenance, and systemd supervision remain future work. No existing snapshots or
+database rows were deleted to introduce these controls.
 
 Each new deterministic evaluation links a job and applicant and stores its decision,
 all check reasons, UTC evaluation time, rules version, and a JSON input snapshot.

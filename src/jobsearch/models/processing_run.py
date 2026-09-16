@@ -30,3 +30,4 @@ class ProcessingRun(Base):
     collection_mode: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
     skip_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     next_eligible_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    pages_collected: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)

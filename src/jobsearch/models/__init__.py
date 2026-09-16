@@ -7,6 +7,8 @@ from .application import Application
 from .processing_run import ProcessingRun
 from .job_source import JobSource
 from .request_attempt import RequestAttempt
+from .request_budget import RequestBudget, RequestBudgetWindow
+from .collection_control import CollectionControl
 
 __all__ = [
     "Applicant",
@@ -16,4 +18,7 @@ __all__ = [
     "ProcessingRun",
     "JobSource",
     "RequestAttempt",
+    "RequestBudget",
+    "RequestBudgetWindow",
+    "CollectionControl",
 ]

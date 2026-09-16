@@ -20,6 +20,7 @@ SAMPLE = Path(__file__).resolve().parents[1] / "data/remotive_sample.json"
 
 @pytest.fixture
 def setup(tmp_path, monkeypatch):
+    monkeypatch.setenv('JOBSEARCH_DATA_DIR', str(tmp_path))
     url = f"sqlite:///{tmp_path / 'state.db'}"
     now = datetime(2026, 9, 14, 12)
     monkeypatch.setattr(source_repository, "utcnow", lambda: now)

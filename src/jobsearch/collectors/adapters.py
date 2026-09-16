@@ -3,6 +3,7 @@ from typing import Any, Protocol
 from copy import deepcopy
 
 from jobsearch.models import Job, JobSource
+from jobsearch.collectors.pagination import CollectionBatch
 
 
 class CollectorAdapter(Protocol):
@@ -10,7 +11,7 @@ class CollectorAdapter(Protocol):
     defaults: dict[str, Any]
 
     def validate(self, config: JobSource) -> None: ...
-    def collect(self, config: JobSource, database_url: str) -> list[Any]: ...
+    def collect(self, config: JobSource, database_url: str) -> list[Any] | CollectionBatch: ...
     def normalize(self, config: JobSource, payload: dict[str, Any]) -> Job: ...
 
 

@@ -19,7 +19,8 @@ SAMPLE = Path(__file__).resolve().parents[1] / "data" / "remotive_sample.json"
 
 
 @pytest.fixture(autouse=True)
-def no_live_requests(monkeypatch):
+def no_live_requests(monkeypatch, tmp_path):
+    monkeypatch.setenv('JOBSEARCH_DATA_DIR', str(tmp_path))
     def unexpected(*args, **kwargs):
         pytest.fail("Tests must never call the live API")
     monkeypatch.setattr(collector_module, "urlopen", unexpected)

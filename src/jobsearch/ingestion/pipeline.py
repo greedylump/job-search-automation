@@ -1,11 +1,18 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
+from sqlalchemy import text
 from collections.abc import Callable
 from typing import Any
 from jobsearch.collectors.source import SourceSkipped
+from jobsearch.storage.collection_control import ensure_collection_allowed
 from jobsearch.collectors.run_context import processing_run_id as active_run_id
+from jobsearch.collectors.run_context import collector_lease
+from jobsearch.collectors.pagination import CollectionBatch
+from jobsearch.models import JobSource, RequestBudget
+from jobsearch.storage.budget_repository import eligible_at
+from jobsearch.storage import source_repository
 
 from jobsearch.config.settings import get_settings
 from jobsearch.filtering.filters import JobFilter
@@ -56,7 +63,7 @@ def _finish_processing_run_for_failure(
         close_session(fail_session)
 
 
-def run_ingestion(*, source: str, collect: Callable[[], list[Any]],
+def run_ingestion(*, source: str, collect: Callable[[], list[Any] | CollectionBatch],
                   normalize: Callable[[dict[str, Any]], Job],
                   database_url: str | None = None, collection_mode: str = "fixture") -> ProcessingRun:
     """Collect and store one source batch, recording durable success/failure metrics."""
@@ -84,9 +91,23 @@ def run_ingestion(*, source: str, collect: Callable[[], list[Any]],
 
         token = active_run_id.set(processing_run_id)
         try:
+            ensure_collection_allowed(database_url)
             raw_jobs = collect()
         finally:
             active_run_id.reset(token)
+
+        batch = raw_jobs if isinstance(raw_jobs, CollectionBatch) else CollectionBatch(raw_jobs, True, pages=1 if collection_mode == "live" else 0)
+        raw_jobs = batch.records
+        processing_run.pages_collected = batch.pages
+        # No jobs or checkpoints are written if storage became unsafe in flight.
+        # Request history is already durable; the old cursor permits safe replay.
+        ensure_collection_allowed(database_url)
+        session.execute(text("BEGIN IMMEDIATE"))
+        source_row = session.get(JobSource, source)
+        lease = collector_lease.get()
+        if lease is not None and (source_row.lease_token != lease or
+                source_row.lease_expires_at <= source_repository.utcnow()):
+            raise RuntimeError("Collector lease expired before ingestion commit")
 
         repo = JobRepository(session)
         seen_keys_in_batch: set[tuple[str, str]] = set()
@@ -140,8 +161,26 @@ def run_ingestion(*, source: str, collect: Callable[[], list[Any]],
         processing_run.jobs_scored = jobs_scored
         processing_run.ai_cost = ai_cost
         processing_run.completed_at = datetime.now(timezone.utc)
-        processing_run.status = "completed"
+        processing_run.status = "completed" if batch.complete else ("partial" if batch.pages else "deferred")
+        processing_run.pages_collected = batch.pages
+        if not batch.complete:
+            processing_run.skip_reason = batch.reason
+            processing_run.next_eligible_at = batch.next_eligible_at
         processing_run.error_message = None
+
+        if source_row is not None and collection_mode != "replay":
+            now = source_repository.utcnow()
+            if batch.complete:
+                source_row.continuation = None
+                source_row.last_complete_refresh_at = now
+                source_row.next_due_at = now + timedelta(seconds=source_row.refresh_interval_seconds)
+            else:
+                source_row.continuation = {"cursor": batch.next_cursor} if batch.next_cursor is not None else None
+                source_row.next_due_at = max(now + timedelta(minutes=5), batch.next_eligible_at or now)
+                budget = session.get(RequestBudget, source_row.budget_name) if source_row.budget_name else None
+                if budget is not None:
+                    source_row.next_due_at = max(source_row.next_due_at, eligible_at(session, budget, now) or now)
+                processing_run.next_eligible_at = source_row.next_due_at
 
         session.commit()
         logger.info(
@@ -160,6 +199,15 @@ def run_ingestion(*, source: str, collect: Callable[[], list[Any]],
         )
         return processing_run
     except SourceSkipped as exc:
+        if exc.status == "not_modified" and collector_lease.get() is not None:
+            session.execute(text("BEGIN IMMEDIATE"))
+            current = session.get(JobSource, source)
+            now = source_repository.utcnow()
+            if current.lease_token == collector_lease.get() and current.lease_expires_at > now:
+                current.last_complete_refresh_at = now
+                current.next_due_at = now + timedelta(seconds=current.refresh_interval_seconds)
+            else:
+                exc = SourceSkipped("Collector lease expired before completion", None)
         processing_run.status = exc.status
         processing_run.skip_reason = str(exc)
         processing_run.next_eligible_at = exc.next_allowed_at

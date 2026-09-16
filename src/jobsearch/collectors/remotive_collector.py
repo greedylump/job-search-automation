@@ -3,11 +3,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from typing import Any
-from urllib.request import urlopen
 from urllib.parse import urlencode
 
 from jobsearch.collectors.source import REMOTIVE
-from jobsearch.collectors.http_client import fetch_records
+from jobsearch.collectors.http_client import fetch_records, urlopen
+from jobsearch.collectors.http_request import RequestSpec
 from jobsearch.storage.source_repository import SourceRepository, utcnow
 
 API_URL = REMOTIVE.endpoint
@@ -42,9 +42,11 @@ class RemotiveCollector:
     def collect(self) -> list[Any]:
         if self.snapshot_path is not None and self.snapshot_path.exists():
             raise FileExistsError(f"Snapshot already exists: {self.snapshot_path}")
-        source = self.state.reserve(REMOTIVE if self.source_name == "remotive" else self.source_name)
-        query = urlencode(source.settings)
-        endpoint = source.endpoint + ("?" + query if query else "")
-        return fetch_records(source=source, state=self.state, endpoint=endpoint,
+        def build_request(source):
+            query = urlencode(source.settings)
+            return RequestSpec(source.endpoint + ("?" + query if query else ""))
+
+        return fetch_records(source=REMOTIVE if self.source_name == "remotive" else self.source_name,
+                             state=self.state, build_request=build_request,
                              decode=self._decode, opener=urlopen, now=utcnow,
                              max_bytes=MAX_RESPONSE_BYTES, snapshot_path=self.snapshot_path)
