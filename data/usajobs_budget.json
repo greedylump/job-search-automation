@@ -1,0 +1,7 @@
+{
+  "min_interval_seconds": 2,
+  "windows": [
+    {"window_seconds": 3600, "max_requests": 60},
+    {"window_seconds": 86400, "max_requests": 200}
+  ]
+}

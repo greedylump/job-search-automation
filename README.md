@@ -634,6 +634,69 @@ threshold imposes no salary check, even if currency/period are configured.
 
 ## History and metrics
 
+### USAJOBS local collector
+
+The `usajobs` adapter uses the official authenticated Search API. Credentials are
+loaded at request time from `JOBSEARCH_USAJOBS_API_KEY` and
+`JOBSEARCH_USAJOBS_EMAIL` in the environment or ignored project `.env`. They are
+sent only in headers, never saved in collector settings or request metadata.
+The endpoint is fixed to HTTPS `data.usajobs.gov`; automatic redirects remain
+disabled. Do not place credentials in the example configuration files.
+
+```powershell
+python -m jobsearch.scripts.collectors_cli --database-url sqlite:///./data/remotive-live.db create --input data/usajobs_collector.json
+python -m jobsearch.scripts.collectors_cli --database-url sqlite:///./data/remotive-live.db budget-update --name usajobs --input data/usajobs_budget.json
+python -m jobsearch.scripts.collection_worker --database-url sqlite:///./data/remotive-live.db --once
+```
+
+Create is a one-time operation. Change an existing instance with `update --name
+usajobs --input <partial-config.json>`; omit `name` and `adapter_type` from updates.
+The sample searches public IT-series `2210` announcements, no geographic filter,
+newest opening dates first, full fields, 100 records per page, and **one page per
+refresh** for initial observation. It refreshes every six hours. `settings.query`
+supports Keyword, PositionTitle, JobCategoryCode, LocationName, Organization,
+DatePosted (0–60 as a string), RemoteIndicator (`"True"`/`"False"`), and HiringPath.
+`settings.page_size` is 1–500 and `settings.max_pages` is 1–20. Filters describe a
+search, not an assertion that the applicant is eligible for federal employment.
+
+Each page uses the shared HTTP ledger, budget checks, storage guard, and 20 MiB
+response bound. Pages are paced at least two seconds apart. The example budget is
+**our conservative local policy**, not a claimed USAJOBS quota: two-second spacing,
+60 requests/hour, and 200/day across USAJOBS instances in this database. Configure
+the example budget before running the example collector. API 429/Retry-After stops
+the batch without immediate retry. USAJOBS documents 500 rows/page and 10,000/query,
+but no numeric request/time quota in the reviewed rate guide.
+
+Page numbers do not provide a stable snapshot, so interrupted or capped batches
+restart at page one and deduplicate on their next refresh; they do not persist an
+unsafe page cursor. Partial results remain marked partial and wait at least six
+hours, avoiding repeated first-page polling every five minutes. Increase page
+coverage or narrow search criteria when a cap prevents full coverage. No historical
+backfill completeness is claimed. Jobs use MatchedObjectId as source ID and preserve
+the supplied application link and posting-channel attribution. Telework does not
+imply remote; unspecified currency remains unknown, and recognized pay periods
+are normalized without annualizing. Closing dates and eligibility text are retained
+in description text; application eligibility filtering is future work.
+
+Official references: [authentication](https://developer.usajobs.gov/guides/authentication),
+[search fields](https://developer.usajobs.gov/api-reference/get-api-search), and
+[result limits](https://developer.usajobs.gov/guides/rate-limiting).
+
+Local verification, September 17, 2026: **251 tests passed**, including mocked
+multi-page requests, deduplication, caps, missing credentials, malformed responses,
+and 429/backoff with no credential logging. A backed-up live database was used for
+one worker sweep at approximately 21:43 UTC. USAJOBS returned HTTP 200 and 100 new
+jobs (one page, partial due to the explicit cap); Remotive returned HTTP 200 and
+15 duplicates. Neither run rejected records. Database size increased from 200,704
+to 974,848 bytes (774,144 bytes growth), for 116 stored jobs total. USAJOBS response
+size was 2,175,675 bytes; only normalized job data and request metrics were stored.
+An immediate second sweep added no requests or runs. Integrity/foreign-key checks
+passed, and exact credential values were absent from the database and worker logs.
+Both sources next become due around September 18, 03:43 UTC (September 17, 10:43 PM
+Central). These are historical observation times, not instructions to bypass the
+database schedule. No background worker was left running. Multiple refresh cycles
+are still needed to measure sustained yield and growth; no deployment was performed.
+
 ### Storage protection and retention (September 16 checkpoint)
 
 Checkpoint review: **237 tests passed**. A separate-process CLI walkthrough using

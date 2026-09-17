@@ -1,0 +1,10 @@
+{
+  "name": "usajobs",
+  "adapter_type": "usajobs",
+  "refresh_interval_seconds": 21600,
+  "settings": {
+    "query": {"JobCategoryCode": "2210"},
+    "page_size": 100,
+    "max_pages": 1
+  }
+}

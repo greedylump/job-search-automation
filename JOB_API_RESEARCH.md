@@ -8,6 +8,13 @@ Public API access does not imply an unrestricted license to republish job data.
 
 ## Coverage and limits
 
+Implementation update (2026-09-17): USAJOBS now has an authenticated adapter with
+tracked, bounded pagination and configurable database-backed search settings.
+The first local sample used public IT-series 2210, 100 results/page, one page:
+HTTP 200, 100 new jobs, partial coverage. Local policy is 2-second request spacing,
+60 requests/hour, 200/day, and six-hour board refreshes; these are self-imposed
+limits, not provider-published request quotas. See README for commands and results.
+
 | Source | Access / coverage | Published request limits | Return size / pagination | Initial assessment |
 | --- | --- | --- | --- | --- |
 | Jobicy | No key; remote jobs across employers | Automated polling no more than hourly; a few checks/day normally sufficient | `count` 1-200, default 200; latest listings; no pagination documented | Simplest next broad feed; actual unique yield unmeasured |

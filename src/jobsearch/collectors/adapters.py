@@ -66,7 +66,10 @@ class FixtureAdapter:
         return JsonJobNormalizer.normalize(payload)
 
 
-ADAPTERS: dict[str, CollectorAdapter] = {"remotive": RemotiveAdapter(), "json_fixture": FixtureAdapter()}
+from jobsearch.collectors.usajobs_collector import USAJobsAdapter
+
+ADAPTERS: dict[str, CollectorAdapter] = {"remotive": RemotiveAdapter(), "json_fixture": FixtureAdapter(),
+                                      "usajobs": USAJobsAdapter()}
 
 
 def defaults_for(kind: str) -> dict:
