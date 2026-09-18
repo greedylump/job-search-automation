@@ -27,18 +27,25 @@ def _print_result(evaluation) -> None:
     print(f"evaluation={evaluation.id} job={evaluation.job_id} | {snapshot.get('title') or '(untitled)'} | "
           f"{snapshot.get('company') or '(unknown company)'} | {evaluation.decision or 'legacy'}")
     print(f"  evaluated={evaluation.evaluated_at} rules={evaluation.rules_version or 'legacy/unknown'}")
+    policy = (evaluation.input_context or {}).get("search_policy")
+    if policy is not None:
+        print(f"  policy-revision={policy['revision']} provisional-tier={evaluation.tier or 'unassigned'} tailoring={evaluation.tailoring_level or 'unassigned'}")
     session = object_session(evaluation)
     config = session.get(JobSource, evaluation.job.source) if session is not None else None
     if evaluation.job.source == "remotive" or (config is not None and config.adapter_type == "remotive"):
         print(f"  Source: Remotive | {evaluation.job.job_url or 'No source link supplied'}")
     for reason in evaluation.reasons or []:
         print(f"  {reason['check']} [{reason['outcome']}]: {reason['message']}")
+        if reason.get("candidates"):
+            for candidate in reason["candidates"]:
+                print(f"    candidate={candidate['tier']} matched-roles={', '.join(candidate['matched_roles'])}")
     if not evaluation.reasons:
         print(f"  {evaluation.rejection_reason or 'Legacy evaluation: no deterministic reasons recorded.'}")
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Evaluate stored jobs using applicant preferences; no AI calls.")
+    parser.add_argument("--database-url", help="Explicit database to evaluate or inspect")
     commands = parser.add_subparsers(dest="command", required=True)
     evaluate = commands.add_parser("evaluate", help="evaluate stored jobs and preserve distinct input history")
     evaluate.add_argument("--applicant-id", required=True, type=_positive_id)
@@ -53,7 +60,7 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     session = None
     try:
-        url = get_settings().database_url
+        url = args.database_url or get_settings().database_url
         run_migrations(url)
         session = get_session(url)
         repository = EvaluationRepository(session)

@@ -1,6 +1,17 @@
 # Job Search Automation
 
-A small Python project for ingesting jobs from local fixtures and the Remotive public API, normalizing them into a common model, storing them in SQLite, deduplicating them, and evaluating stored jobs against applicant preferences with explainable deterministic rules.
+A small Python project for ingesting jobs from local fixtures, Remotive, and USAJOBS, normalizing them into a common model, storing them in SQLite, deduplicating them, and evaluating stored jobs against applicant preferences with explainable deterministic rules.
+
+## Current state — September 18, 2026
+
+The latest verified suite has **288 passing tests**. The migration head is
+`20260918_17`. Shared applicant policy and editable A–D strategies are implemented
+and privately configured locally. Conservative tier-aware deterministic evaluation
+now records provisional routing, shared constraint checks, and unresolved review
+items with complete policy snapshots. See the tier evaluation section for limits.
+The local database retains 116 jobs, 7 runs, and 4 request attempts. Multi-cycle
+worker observation and deployment remain pending. See `LOCAL_OBSERVATION.md` for
+the detailed checkpoint; dated sections below preserve earlier verification results.
 
 ## Project goal for v1
 
@@ -436,7 +447,7 @@ The canonical schema manager is Alembic. Direct table creation with `Base.metada
 python -m jobsearch.scripts.init_db
 ```
 
-The migration chain in `alembic/versions/` should produce a head revision of `20260916_15` and the `jobs` table must expose the unique `source + source_job_id` index shape recorded in the model.
+The migration chain in `alembic/versions/` should produce a head revision of `20260918_17` and the `jobs` table must expose the unique `source + source_job_id` index shape recorded in the model.
 
 
 ## Applicant profiles
@@ -469,7 +480,7 @@ normalized. Invalid input and missing IDs produce nonzero exit codes.
 
 Both direct Alembic commands and application commands read `.env`; shell variables
 win over `.env`. An explicit Python `run_migrations(database_url=...)` argument wins
-over both. The final migration head is `20260916_15`: `_03` retains its historical
+over both. The final migration head is `20260918_17`: `_03` retains its historical
 `completed` default, `_04` adds applicants and nullable links, and `_05` changes
 only the default for new processing runs to `running`, preserving existing statuses.
 `_06` adds nullable salary periods and versioned deterministic evaluation history.
@@ -634,6 +645,129 @@ threshold imposes no salary check, even if currency/period are configured.
 
 ## History and metrics
 
+### Applicant policy and tier configuration — milestone 1
+
+Verified September 18, 2026: **265 tests passed**. The backed-up local database is
+at `20260918_17`, with one privately configured applicant, policy revision 1, and
+four enabled A–D strategies. SQLite integrity and foreign-key checks passed.
+Existing jobs and request history were preserved; no live API calls were made.
+
+Migration `20260918_17` adds `search_policies` (one row per applicant) and
+`tier_strategies` (one unique A/B/C/D row under that policy). Existing applicants,
+jobs, evaluations, and applications are unchanged. No collection request or
+evaluation is performed by configuration commands. Policy definitions use a
+validated version-1 JSON schema; the human-editable example is
+`data/search_policy_sample.json`, which contains fictional data only.
+
+Policies store OR alternatives for work arrangement/country/region, relocation
+handling, employment types, exclusions, reported citizenship/credentials, and
+independent scoring dimensions. Unknown information remains review-needed; a
+credential list marked incomplete is not evidence that unlisted credentials are
+missing. Region names are configuration labels at this stage, not implemented
+geographic matching. Compensation has no global salary floor. Strategy definitions
+store role examples, guidance, tailoring level, compensation guidance, and an
+optional application-time cap. Null caps mean unspecified, not zero minutes.
+Roles may overlap between tiers; provisional routing is now implemented below.
+Application submission remains future work.
+
+```powershell
+# One-time import: bundle contains applicant, policy, and strategies.
+python -m jobsearch.scripts.policy_cli --database-url sqlite:///./data/remotive-live.db import --input data/private/applicant-policy.json
+python -m jobsearch.scripts.policy_cli --database-url sqlite:///./data/remotive-live.db view --applicant-id 1
+# Change one strategy using its complete tier/name/enabled/definition object.
+python -m jobsearch.scripts.policy_cli --database-url sqlite:///./data/remotive-live.db strategy-update --applicant-id 1 --expected-revision 1 --input data/private/strategy-edit.json
+```
+
+Use the applicant ID returned by import rather than assuming ID 1. Import without
+`--applicant-id` explicitly creates a new applicant; do not use it to update one.
+To replace an existing policy, supply `--applicant-id` and `--expected-revision`,
+with a JSON object containing only `policy` and all four `strategies`. This does
+not edit applicant identity or qualifications. Use the existing applicant CLI for
+those fields. Import and edits are atomic. CLI writes acquire the SQLite write
+lock, and stale revisions are rejected. A changed policy or strategy increments
+the shared revision; identical re-imports do not. Strategy IDs remain stable.
+Nested definitions are replaced through repository methods rather than mutated
+in place. Disabled strategies retain their rows. This revision counter does not
+archive every configuration edit; evaluation snapshots now preserve the configuration
+used for each distinct evaluation. Downgrading migration 17 removes policy/strategy configuration, so
+back up before doing so.
+
+Applicants with a saved policy now use `tier-policy-v1`. Applicants without a
+policy retain `preferences-v1`; historical evaluations remain readable. The
+policy evaluator does not apply legacy target-role lists or a global salary floor.
+Collection remains independent of applicant filtering.
+
+### Tier-aware evaluation — milestone 2
+
+Verified September 18, 2026: **288 tests passed**, including 23 new tier tests.
+Fresh/upgrade migration tests passed. A temporary backup of the local database
+passed schema comparison, integrity and foreign-key checks, replay of all 116
+evaluations, and repeat-evaluation idempotency. All 116 required review and had no
+configured title-phrase match. This demonstrates conservative preservation, not
+useful routing coverage for that sample; aliases or richer reviewed evidence are
+needed before claiming broad coverage. The live database was opened read-only and
+still contains zero evaluations. Temporary verification copies were removed.
+
+Use an explicit database target; evaluation reads stored jobs without collecting:
+
+```powershell
+python -m jobsearch.scripts.evaluation_cli --database-url sqlite:///./data/review-copy.db evaluate --applicant-id 1
+python -m jobsearch.scripts.evaluation_cli --database-url sqlite:///./data/review-copy.db list --applicant-id 1
+```
+
+Use the actual applicant ID and an already populated database. The command migrates
+the selected database and writes evaluation history. This milestone requires no
+schema change; head remains `20260918_17`.
+
+Known work arrangements must match at least one shared location alternative's
+arrangements. Recognized employment types are checked against the shared allowed
+list; explicit `c2c` rejects when excluded. Generic contract/consulting with a C2C
+exclusion requires review because it does not identify W-2 terms. Unknown values
+require review. All checks run even after a definite conflict, and rejection wins.
+
+Enabled strategies match case/whitespace-normalized whole phrases in the title.
+Punctuation is literal; synonyms and experience levels are not inferred. All
+matching tier/role pairs are retained in reasons and printed by the CLI. A–D
+precedence selects a **provisional** tier and its tailoring guidance when roles
+overlap. This ordering is an explicit routing convention, not a fit ranking.
+No match leaves the tier unassigned and requests review, including when every
+strategy is disabled. D is not a catch-all for unmatched titles. Rejected jobs can
+retain a provisional tier for audit; that tier never overrides rejection.
+
+Free-text location is not a verified country, metro boundary, commute, or remote
+eligibility fact. Geography and relocation remain review items. Clearance, physical
+demands, citizenship eligibility, and mandatory credentials also require review:
+this version does not extract binding requirements from prose or treat missing
+keywords as clearance to proceed. It never assumes unlisted credentials are absent.
+These limitations mean policy results are currently **review or reject, never
+automatic keep**. A provisional tier is useful for organizing human review, not
+proof that an application is worthwhile or that the applicant is qualified.
+
+Hireability, career value, income value, and application friction each have a
+separate reason. Numeric scores remain null. Reported pay is retained without a
+global floor, annualization, currency conversion, or invented market comparison.
+Strategy compensation guidance and any application-minute cap are carried into
+reasons, but free-text value guidance and unknown application time require judgment.
+A minimal-tailoring strategy or application link does not prove a cheap application.
+No AI call, platform interaction, resume generation, or application is performed.
+
+Each evaluation snapshots the shared policy revision and complete definition, all
+four strategies (including disabled ones), applicant location/skills/experience
+summaries, and relevant job fields including description, source links, employment
+and pay. Contact details are omitted. These snapshots are private applicant data.
+The existing fingerprint and unique index reuse identical inputs; policy revisions,
+strategy edits, relevant profile/job edits, and rule-version changes create history.
+`tier_rules.evaluate(saved_input_context)` reproduces results using the matching
+rule implementation. Retain versioned source code when changing rule versions.
+Policy edits never rewrite prior snapshots. Ingestion metrics and shared job rows
+are untouched, and the CLI rolls back the whole evaluation batch on failure.
+
+Real applicant input belongs under Git-ignored `data/private/`, and the SQLite
+database is also ignored. These are plaintext private files; ignored by Git does
+not mean encrypted. `policy_cli view` intentionally displays private preferences
+locally; do not publish its output. Public aggregate metrics contain none of these
+profile/policy definitions.
+
 ### USAJOBS local collector
 
 The `usajobs` adapter uses the official authenticated Search API. Credentials are
@@ -772,17 +906,62 @@ python -m jobsearch.scripts.storage_maintenance --snapshot-dir data/snapshots
 python -m jobsearch.scripts.storage_maintenance --snapshot-dir data/snapshots --days 7 --apply
 ```
 
-No database history is deleted yet. Planned detailed retention is 180 days for
-request attempts and 365 days for runs, but deletion must first preserve daily
-aggregates, foreign-key relationships, and every attempt still needed by active
-budget windows. Job/evaluation deletion remains disabled; application-linked
-history must be preserved. Backup creation/rotation, database compaction, scheduled
-maintenance, and systemd supervision remain future work. No existing snapshots or
-database rows were deleted to introduce these controls.
+Database history retention is now available as an explicit maintenance command.
+Defaults are 180 days for requests and 365 days for runs, tunable with
+`JOBSEARCH_REQUEST_RETENTION_DAYS` and `JOBSEARCH_RUN_RETENTION_DAYS` or command flags.
+The command migrates the schema if necessary but previews row deletion by default.
+It lists exact IDs and date ranges, bounded to 1,000 eligible rows per table per
+invocation (configurable up to 10,000). Re-run to process further batches.
+
+```powershell
+python -m jobsearch.scripts.history_maintenance --database-url sqlite:///./data/remotive-live.db
+python -m jobsearch.scripts.history_maintenance --database-url sqlite:///./data/remotive-live.db --apply
+```
+
+Migration `20260917_16` adds `daily_metrics`. Applying retention adds each eligible
+row to its UTC day/source/type/status group, then deletes the detail in the same
+SQLite write transaction. Metrics include run counts, job counts, invalid reasons,
+AI cost, pages, elapsed time, request outcomes/status/purpose, response bytes, and
+records returned. Null fields have known-row counters and are not silently treated
+as measured zero. Groups contain no request URLs, credentials, applicant profiles,
+or descriptions. **These aggregates cover deleted rows only**: combine them with
+retained detail to calculate lifetime totals, and keep request and run totals
+separate. Repeated cleanup cannot count a deleted row twice. Detailed errors and
+individual timings are no longer available once their retention period expires.
+
+Unfinished requests, running parents, future retry/reservation deadlines, and
+requests within any active rolling budget window are retained. Runs with retained
+request children cannot be deleted. Enlarging a quota window into already-pruned
+history is rejected because the precise request timestamps no longer exist.
+Downgrading migration 16 with populated aggregates is refused to prevent losing the
+only remaining history. Restore a pre-retention backup if rollback is necessary.
+Job, applicant, application, and evaluation tables are never pruned by this command.
+No automatic VACUUM runs: SQLite normally reuses freed pages rather than shrinking
+the file, and compaction needs extra disk headroom. Scheduled maintenance, automatic
+backup rotation, and systemd supervision remain future work.
+
+### Expanded local observation
+
+`data/usajobs_expanded.json` raises the existing IT-series collector to three pages
+of 100 results each, retaining its query and six-hour refresh schedule:
+
+```powershell
+python -m jobsearch.scripts.collectors_cli --database-url sqlite:///./data/remotive-live.db update --name usajobs --input data/usajobs_expanded.json
+python -m jobsearch.scripts.collection_worker --database-url sqlite:///./data/remotive-live.db --loop --poll-seconds 60 --max-runtime-seconds 66000
+python -m jobsearch.scripts.observation_report --database-url sqlite:///./data/remotive-live.db
+```
+
+The bounded loop stops after about 18 hours 20 minutes, after finishing any current
+batch. The PC must stay awake and connected; missed polling periods do not fabricate
+historical runs. Ctrl+C stops a foreground loop. The persistent storage CLI `pause`
+blocks further collection even if a loop remains running. Keep one worker per DB.
+The report shows storage state, schedules, recent runs, retained attempts, and up to
+100 archived metric groups. Worker logs rotate in `data/logs/collection.log`.
+See `LOCAL_OBSERVATION.md` for the initial relevance review and observation limits.
 
 Each new deterministic evaluation links a job and applicant and stores its decision,
 all check reasons, UTC evaluation time, rules version, and a JSON input snapshot.
-The snapshot contains the applicant's remote/location/role/salary preferences and
+For `preferences-v1`, the snapshot contains the applicant's remote/location/role/salary preferences and
 the job's title, company, location, work arrangement, and compensation, plus both IDs.
 This is enough to explain the decision after records change without copying contact
 information. AI score, model-name, and cost fields remain null. Shared job status is
@@ -792,7 +971,7 @@ A SHA-256 fingerprint covers that exact snapshot and rules version. Re-evaluatin
 an identical combination reuses the existing record, enforced by a unique database
 index. Any change to a snapshotted value or the rules version creates another
 historical evaluation. Reverting to a previously evaluated combination reuses that
-older result. Contact details, skills (not checked in this version), and last-seen
+older result. For `preferences-v1`, contact details, skills (not checked in that version), and last-seen
 timestamps do not affect the fingerprint. Whitespace/case edits may produce a new
 snapshot even when the normalized decision stays the same.
 

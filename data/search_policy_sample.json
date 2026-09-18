@@ -1,0 +1,28 @@
+{
+  "applicant": {"full_name": "Fictional Policy Example", "skills": ["Example skill"]},
+  "policy": {
+    "schema_version": 1,
+    "objective": "Maximize acceptable offers relative to money and applicant time",
+    "location": {
+      "home_postal_code": null,
+      "alternatives": [
+        {"arrangements": ["remote"], "country": "US", "region": null},
+        {"arrangements": ["hybrid", "onsite"], "country": "US", "region": "Example metro area"}
+      ],
+      "relocation": "review"
+    },
+    "employment_types": ["full_time", "w2_contract", "temporary", "part_time"],
+    "exclusions": ["c2c", "active_clearance_required", "clearance_core_requirement", "significant_physical_labor", "known_missing_mandatory_credentials"],
+    "eligibility": {"citizenships": [], "known_credentials": [], "credentials_complete": false},
+    "unknown_handling": "review",
+    "compensation": "per_strategy_no_global_floor",
+    "scoring_dimensions": ["hireability", "career_value", "income_value", "application_friction"],
+    "automation": {"avoid_aggressive_platforms": ["LinkedIn", "Indeed"], "allow_fabrication": false}
+  },
+  "strategies": [
+    {"tier": "A", "name": "Primary career", "enabled": true, "definition": {"roles": ["Example senior role"], "guidance": "Prioritize career fit", "tailoring": "deep", "compensation_guidance": "Consider senior market compensation and long-term value", "max_application_minutes": null}},
+    {"tier": "B", "name": "Adjacent technical", "enabled": true, "definition": {"roles": ["Example adjacent role"], "guidance": "Allow realistic skill gaps", "tailoring": "light", "compensation_guidance": "Consider technical opportunity value", "max_application_minutes": null}},
+    {"tier": "C", "name": "Bridge income", "enabled": true, "definition": {"roles": ["Example support role"], "guidance": "Prioritize useful income quickly", "tailoring": "minimal", "compensation_guidance": "Income relative to time and commute", "max_application_minutes": null}},
+    {"tier": "D", "name": "Low-cost exploratory", "enabled": true, "definition": {"roles": ["Example analytical role"], "guidance": "Plausibly doable work with inexpensive applications", "tailoring": "minimal", "compensation_guidance": "Consider acceptable offers relative to application effort", "max_application_minutes": null}}
+  ]
+}

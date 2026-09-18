@@ -1,0 +1,7 @@
+{
+  "settings": {
+    "query": {"JobCategoryCode": "2210"},
+    "page_size": 100,
+    "max_pages": 3
+  }
+}

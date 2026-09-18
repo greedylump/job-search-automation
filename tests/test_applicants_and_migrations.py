@@ -23,7 +23,7 @@ from jobsearch.storage.database import build_session_factory
 from jobsearch.storage.applicant_repository import ApplicantRepository
 
 ROOT = Path(__file__).resolve().parents[1]
-HEAD = "20260916_15"
+HEAD = "20260918_17"
 
 
 @pytest.fixture

@@ -8,9 +8,10 @@ import math
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from jobsearch.evaluation import rules
-from jobsearch.models import Job, JobEvaluation
+from jobsearch.evaluation import rules, tier_rules
+from jobsearch.models import Job, JobEvaluation, SearchPolicy
 from jobsearch.storage.applicant_repository import ApplicantRepository
+from jobsearch.storage.policy_repository import PolicyRepository
 
 
 PREFERENCE_FIELDS = (
@@ -46,6 +47,8 @@ class EvaluationRepository:
 
     def evaluate_jobs(self, applicant_id: int, job_id: int | None = None) -> tuple[list[JobEvaluation], dict[str, int]]:
         applicant = self._applicant(applicant_id)
+        policy = (PolicyRepository(self.session).view(applicant_id)
+                  if self.session.get(SearchPolicy, applicant_id) is not None else None)
         statement = select(Job).order_by(Job.id)
         if job_id is not None:
             if isinstance(job_id, bool) or not isinstance(job_id, int) or job_id <= 0:
@@ -63,6 +66,14 @@ class EvaluationRepository:
                 "job": _snapshot(job, JOB_FIELDS),
                 "rules_version": rules.RULES_VERSION,
             }
+            if policy is not None:
+                context = {
+                    "applicant_id": applicant.id, "job_id": job.id,
+                    "search_policy": policy,
+                    "applicant": _snapshot(applicant, ("location", "professional_summary", "experience_summary", "skills")),
+                    "job": _snapshot(job, JOB_FIELDS + ("employment_type", "description", "source", "source_job_id", "job_url", "apply_url", "ats_type", "status")),
+                    "rules_version": tier_rules.RULES_VERSION,
+                }
             fingerprint = hashlib.sha256(json.dumps(context, sort_keys=True, ensure_ascii=True, allow_nan=False).encode()).hexdigest()
             existing = self.session.scalar(select(JobEvaluation).where(
                 JobEvaluation.job_id == job.id,
@@ -73,12 +84,14 @@ class EvaluationRepository:
                 evaluations.append(existing)
                 summary["unchanged"] += 1
                 continue
-            result = rules.evaluate(context["preferences"], context["job"])
+            result = tier_rules.evaluate(context) if policy is not None else rules.evaluate(context["preferences"], context["job"])
             evaluation = JobEvaluation(
                 job_id=job.id, applicant_id=applicant.id,
                 decision=result.decision, reasons=result.reasons,
-                evaluated_at=datetime.now(timezone.utc), rules_version=rules.RULES_VERSION,
+                evaluated_at=datetime.now(timezone.utc), rules_version=context["rules_version"],
                 input_fingerprint=fingerprint, input_context=context,
+                tier=result.tier if policy is not None else None,
+                tailoring_level=result.tailoring_level if policy is not None else None,
             )
             self.session.add(evaluation)
             self.session.flush()

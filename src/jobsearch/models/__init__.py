@@ -9,6 +9,8 @@ from .job_source import JobSource
 from .request_attempt import RequestAttempt
 from .request_budget import RequestBudget, RequestBudgetWindow
 from .collection_control import CollectionControl
+from .daily_metric import DailyMetric
+from .search_policy import SearchPolicy, TierStrategy
 
 __all__ = [
     "Applicant",
@@ -21,4 +23,7 @@ __all__ = [
     "RequestBudget",
     "RequestBudgetWindow",
     "CollectionControl",
+    "DailyMetric",
+    "SearchPolicy",
+    "TierStrategy",
 ]

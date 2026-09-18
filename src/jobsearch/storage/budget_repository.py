@@ -2,7 +2,7 @@ from datetime import timedelta
 
 from sqlalchemy import select, text
 
-from jobsearch.models import RequestAttempt, RequestBudget, RequestBudgetWindow
+from jobsearch.models import RequestAttempt, RequestBudget, RequestBudgetWindow, DailyMetric
 from jobsearch.storage.database import get_session, close_session
 
 
@@ -46,6 +46,13 @@ class BudgetRepository:
             if budget is None:
                 raise ValueError(f"Unknown budget {name!r}")
             from jobsearch.storage.source_repository import utcnow
+            # Longer windows cannot be enforced accurately using already-pruned detail.
+            for rule in windows:
+                missing = session.scalar(select(DailyMetric.key).where(
+                    DailyMetric.kind == 'request', DailyMetric.budget_name == name,
+                    DailyMetric.last_event_at > utcnow() - timedelta(seconds=rule['window_seconds'])).limit(1))
+                if missing:
+                    raise ValueError('Requested budget window overlaps pruned request history')
             old_deadline = eligible_at(session, budget, utcnow())
             if old_deadline:
                 budget.next_allowed_at = max(budget.next_allowed_at or old_deadline, old_deadline)
