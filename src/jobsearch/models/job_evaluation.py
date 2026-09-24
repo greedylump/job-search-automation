@@ -26,6 +26,7 @@ class JobEvaluation(Base):
     recommended_resume_variant: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     tailoring_level: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
     decision: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    queue_state: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
     rejection_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     evaluated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     model_name: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)

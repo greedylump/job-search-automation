@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "name": "english-software-v1",
+  "revision": 1,
+  "aliases": {
+    "react.js": "react",
+    "reactjs": "react",
+    "node.js": "node",
+    "nodejs": "node",
+    "next.js": "next",
+    "nextjs": "next"
+  },
+  "patterns": {
+    "section_end": "\\b(?:Benefits|What we offer|Sounds good for you|NOT YOUR TECH STACK)\\b",
+    "experience_heading": "\\bCommercial experience:\\s*",
+    "expertise_clause": "Expertise in ([^:;\\n]+?) is a must\\.",
+    "formatting": "[\\s*\\-\u2022]+",
+    "section_heading": "(?<!other )\\bRequirements(?: for [^:\\n]{1,120})?:",
+    "negation_prefix": "\\b(?:no|not|without)\\s+$",
+    "experience_end": "\\b(?:Expertise in|Other requirements|Preferred|Nice.to.have|Education|Qualifications)\\b",
+    "or_separator": "\\s+OR\\s+",
+    "skill_separator": ",\\s*|\\s+and\\s+",
+    "and_separator": ",\\s*(?:and\\s+)?|\\s+and\\s+",
+    "ambiguity": "\\b(?:equivalent|waiv\\w*|either|unless|except\\w*|preferred|optional|nice.to.have|not required)\\b",
+    "years_clause": "\\s*([\\w.+# -]+?):\\s*(\\d+(?:\\.\\d+)?)\\+?\\s+years\\s*[.;]?\\s*",
+    "or_word": "\\bor\\b",
+    "skill_name": "[\\w.+# -]+"
+  }
+}

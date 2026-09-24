@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from copy import deepcopy
 import math
 from pathlib import Path
 from typing import Any
@@ -10,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from jobsearch.models.applicant import Applicant
 from jobsearch.evaluation.rules import PAY_PERIODS
+from jobsearch.evaluation.qualification import validate_evidence
 
 
 class ApplicantRepository:
@@ -30,9 +32,11 @@ class ApplicantRepository:
     def validate_payload(self, payload: dict[str, Any], *, partial: bool = False) -> None:
         if not isinstance(payload, dict):
             raise ValueError("Applicant payload must be a JSON object")
-        unknown = payload.keys() - (self.TEXT_FIELDS | self.LIST_FIELDS | {"full_name", "minimum_salary"})
+        unknown = payload.keys() - (self.TEXT_FIELDS | self.LIST_FIELDS | {"full_name", "minimum_salary", "experience_evidence"})
         if unknown:
             raise ValueError(f"Unknown or protected fields: {', '.join(sorted(unknown))}")
+        if "experience_evidence" in payload:
+            validate_evidence(payload["experience_evidence"])
         if not partial or "full_name" in payload:
             name = payload.get("full_name")
             if not isinstance(name, str) or not name.strip():
@@ -65,7 +69,7 @@ class ApplicantRepository:
                 raise ValueError("minimum_salary must be finite, nonnegative, and numeric (not boolean)")
 
     def _normalized(self, payload: dict[str, Any]) -> dict[str, Any]:
-        result = dict(payload)
+        result = deepcopy(payload)
         if "full_name" in result:
             result["full_name"] = result["full_name"].strip()
         if result.get("remote_preference") is not None:

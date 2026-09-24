@@ -1,11 +1,12 @@
 """Conservative policy routing, not a qualification or application approval."""
 from dataclasses import dataclass
+from copy import deepcopy
 import re
 
 from jobsearch.evaluation.rules import normalized, _amount, PAY_PERIODS
 from jobsearch.storage.policy_repository import validate_policy, validate_strategy
 
-RULES_VERSION = "tier-policy-v1"
+RULES_VERSION = "tier-policy-v4"
 
 
 @dataclass(frozen=True)
@@ -14,9 +15,10 @@ class Result:
     reasons: list[dict]
     tier: str | None
     tailoring_level: str | None
+    queue_state: str | None = None
 
 
-def evaluate(context: dict) -> Result:
+def evaluate_v1(context: dict) -> Result:
     """Replay using only the saved inputs. Unknown facts never become failures.
 
     Role examples are positive routing hints, not an exhaustive allowlist.
@@ -97,3 +99,59 @@ def evaluate(context: dict) -> Result:
     decision = "reject" if any(r["outcome"] == "reject" for r in reasons) else "review"
     return Result(decision, reasons, selected["tier"] if selected else None,
                   definition.get("tailoring"))
+
+
+def evaluate_v2(context: dict) -> Result:
+    """Replay old policies unchanged; v2 consumes versioned, shared job facts."""
+    if context.get("rules_version") == "tier-policy-v1":
+        return evaluate_v1(context)
+    from jobsearch.evaluation.job_facts import extract, parse_as_of
+    facts = context.get("job_facts")
+    if facts is None:
+        facts = extract(context["job"], parse_as_of(context["facts_as_of"]) if context.get("facts_as_of") else None)
+    routed = deepcopy(context)
+    routed["job"]["employment_type"] = facts["employment"]["value"]
+    result = evaluate_v1(routed)
+    for reason in result.reasons:
+        if reason["check"] == "employment":
+            reason["evidence"] = facts["employment"]["evidence"]
+        if reason["check"] in {"active_clearance_required", "clearance_core_requirement"}:
+            requirements = [r for r in facts["requirements"] if r["kind"] == "security_clearance"
+                            and (reason["check"] == "clearance_core_requirement" or r["requirement"] == "active_required")]
+            if requirements:
+                reason.update(outcome="reject", message="An explicit source requirement conflicts with this clearance exclusion.",
+                              evidence=[r["evidence"] for r in requirements])
+    availability = facts["availability"]
+    result.reasons.insert(0, dict(check="availability",
+        outcome="reject" if availability["status"] == "past_reported_deadline" else "review",
+        message=f"Availability: {availability['status']}. {availability['reason']}",
+        evidence=availability["evidence"], status=availability["status"]))
+    decision = "reject" if any(r["outcome"] == "reject" for r in result.reasons) else "review"
+    return Result(decision, result.reasons, result.tier, result.tailoring_level)
+
+
+def evaluate(context: dict) -> Result:
+    if context.get("rules_version") in {"tier-policy-v1", "tier-policy-v2"}:
+        return evaluate_v2(context)
+    from jobsearch.evaluation.qualification import assess, extract_requirements, queue_state
+    base = evaluate_v2(context)
+    requirements = context.get("qualification_requirements") or extract_requirements(context["job"])
+    assessment = assess(context["job"], context.get("applicant", {}).get("experience_evidence"), requirements,
+                        eligibility=context['search_policy']['policy']['eligibility'])
+    for condition in assessment.get('source_conditions', []):
+        if condition['kind'] == 'citizenship':
+            base.reasons.append(dict(check='citizenship', outcome='keep' if condition['status']=='supported' else 'review',
+                message='Source citizenship condition: '+condition['status']+'. Other hiring eligibility remains separate.',
+                evidence=[condition['evidence']], applicant_evidence=condition['applicant_evidence']))
+    state = queue_state(assessment, base.reasons)
+    base.reasons.insert(0, dict(check="qualification_gate", outcome="reject" if state == "do_not_pursue" else "review" if state == "unresolved" else "keep",
+        message=f"Queue: {state}. {assessment['reason']}", queue_state=state, assessment=assessment))
+    # Candidate title matches remain audit evidence; no assigned tier/effort
+    # escapes the qualification gate through a cheaper strategy.
+    if state != "plausible":
+        for reason in base.reasons:
+            if reason["check"] == "tier_assignment":
+                reason.update(selected_tier=None, message="Title candidates are audit hints only; qualification gate prevents tier assignment.")
+    return Result("reject" if state == "do_not_pursue" else "review", base.reasons,
+                  base.tier if state == "plausible" else None,
+                  base.tailoring_level if state == "plausible" else None, state)

@@ -110,6 +110,6 @@ def test_migration_preserves_existing_applicant_and_downgrades(setup):
     command.downgrade(cfg, '20260917_16')
     session = get_session(url)
     try:
-        assert session.get(Applicant,1).full_name == 'Existing example'
+        assert session.execute(text('SELECT full_name FROM applicants WHERE id=1')).scalar() == 'Existing example'
     finally:
         close_session(session)

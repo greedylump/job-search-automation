@@ -22,6 +22,7 @@ class Applicant(Base):
     location: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     professional_summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     experience_summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    experience_evidence: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     skills: Mapped[list[str]] = mapped_column(MutableList.as_mutable(JSON), nullable=False, default=list)
     linkedin_url: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
     github_url: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)

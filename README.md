@@ -2,14 +2,18 @@
 
 A small Python project for ingesting jobs from local fixtures, Remotive, and USAJOBS, normalizing them into a common model, storing them in SQLite, deduplicating them, and evaluating stored jobs against applicant preferences with explainable deterministic rules.
 
-## Current state — September 18, 2026
+## Current state — September 22, 2026
 
-The latest verified suite has **288 passing tests**. The migration head is
-`20260918_17`. Shared applicant policy and editable A–D strategies are implemented
+The latest verified suite has **478 passing tests**. The migration head is
+`20260920_18`. Shared applicant policy and editable A–D strategies are implemented
 and privately configured locally. Conservative tier-aware deterministic evaluation
 now records provisional routing, shared constraint checks, and unresolved review
-items with complete policy snapshots. See the tier evaluation section for limits.
-The local database retains 116 jobs, 7 runs, and 4 request attempts. Multi-cycle
+items with complete policy snapshots. `tier-policy-v4` adds reusable rich evidence
+and optional career-relevance signals to the requirement-to-evidence
+gate and separates internally held records from prospective opportunities. Mandatory
+mismatches cannot be rescued by a lower tier. See the qualification gate section
+for supported grammar and the remaining promotion limitations.
+The local database retains 141 jobs, 8 runs, and 5 request attempts. Multi-cycle
 worker observation and deployment remain pending. See `LOCAL_OBSERVATION.md` for
 the detailed checkpoint; dated sections below preserve earlier verification results.
 
@@ -447,7 +451,7 @@ The canonical schema manager is Alembic. Direct table creation with `Base.metada
 python -m jobsearch.scripts.init_db
 ```
 
-The migration chain in `alembic/versions/` should produce a head revision of `20260918_17` and the `jobs` table must expose the unique `source + source_job_id` index shape recorded in the model.
+The migration chain in `alembic/versions/` should produce a head revision of `20260920_18` and the `jobs` table must expose the unique `source + source_job_id` index shape recorded in the model.
 
 
 ## Applicant profiles
@@ -480,7 +484,7 @@ normalized. Invalid input and missing IDs produce nonzero exit codes.
 
 Both direct Alembic commands and application commands read `.env`; shell variables
 win over `.env`. An explicit Python `run_migrations(database_url=...)` argument wins
-over both. The final migration head is `20260918_17`: `_03` retains its historical
+over both. The final migration head is `20260920_18`: `_03` retains its historical
 `completed` default, `_04` adds applicants and nullable links, and `_05` changes
 only the default for new processing runs to `running`, preserving existing statuses.
 `_06` adds nullable salary periods and versioned deterministic evaluation history.
@@ -692,12 +696,12 @@ archive every configuration edit; evaluation snapshots now preserve the configur
 used for each distinct evaluation. Downgrading migration 17 removes policy/strategy configuration, so
 back up before doing so.
 
-Applicants with a saved policy now use `tier-policy-v1`. Applicants without a
+Applicants with a saved policy now use `tier-policy-v3`. Applicants without a
 policy retain `preferences-v1`; historical evaluations remain readable. The
 policy evaluator does not apply legacy target-role lists or a global salary floor.
 Collection remains independent of applicant filtering.
 
-### Tier-aware evaluation — milestone 2
+### Tier-aware evaluation — milestone 2 (September 18 checkpoint)
 
 Verified September 18, 2026: **288 tests passed**, including 23 new tier tests.
 Fresh/upgrade migration tests passed. A temporary backup of the local database
@@ -992,3 +996,513 @@ python -m pytest -q --basetemp .pytest_cache/evaluation-tests
 git diff --check
 python -m alembic current
 ```
+
+## Auditable facts and availability — September 20
+
+Verification: **334 tests passed**, including 46 facts/availability cases covering
+timezone boundaries, evidence, ambiguous requirements, historical replay, and
+read-only inspection. `git diff --check` passed.
+
+`job_facts.extract` derives applicant-independent `job-facts-v1` facts from stored
+job fields. It preserves raw values in the source record and records the field,
+exact supporting text, and character offsets for each recognized fact. No schema
+migration is needed; head remains `20260918_17`. Derived facts are recomputed for
+inspection and saved inside new evaluation snapshots, not written over job records.
+
+Inspect an existing SQLite file without migrations, applicant reads, or writes:
+
+```powershell
+.\.venv\Scripts\python.exe -m jobsearch.scripts.job_facts_cli --database data/remotive-live.db --summary-only
+# Reproducible historical inspection; omit --summary-only to include evidence.
+.\.venv\Scripts\python.exe -m jobsearch.scripts.job_facts_cli --database data/remotive-live.db --as-of 2026-09-20T12:00:00Z --job-id 31
+```
+
+The CLI opens SQLite with `mode=ro`; it does not create a missing database. The
+default assessment time is current UTC; `--as-of` requires an explicit offset.
+This command is distinct from `evaluation_cli`, which writes evaluation history.
+
+Supported facts and limits:
+
+- Employment: exact aliases such as `Full Time`, `full-time`, `Part Time`, W-2
+  contract and C2C become canonical values. `Permanent`, freelance, missing data,
+  and free-text hour ranges remain unknown; duration does not establish schedule
+  or contractual terms. The original label is retained with evidence.
+- Availability: for USAJOBS-normalized records, parse the single labeled
+  `Application closes:` field. Offset-bearing ISO datetimes use their exact instant.
+  Timezone-free datetimes use a conservative 24-hour guard on either side; date-only
+  values additionally include the entire reported day. Results distinguish
+  `before_reported_deadline`, `deadline_uncertain`, `past_reported_deadline`, and
+  `unknown`. Invalid/multiple dates remain unknown. A future deadline does not prove
+  the listing is open, and an old deadline does not establish that it was never
+  extended. Other sources remain unknown. No URL is visited to verify availability.
+- Requirements: within the USAJOBS-labeled Requirements section only, recognize a
+  small set of complete affirmative sentences requiring Secret/Top Secret clearance
+  or explicitly requiring an active clearance. Negated, conditional, example,
+  potentially waived, public-trust, and unrecognized wording remain unresolved.
+  Other sections and sources are not scanned for binding requirements. This is not
+  comprehensive extraction of citizenship, licenses, credentials, or physical demands.
+
+New `tier-policy-v2` results use canonical employment facts, reject past reported
+deadlines with an explicit availability reason, and apply clearance exclusions only
+to recognized requirements. A requirement to obtain clearance does not prove an
+active clearance is required at application time. Availability stays a separate
+reason from applicant eligibility and fit; shared job status and ingestion metrics
+are unchanged. Title routing and the other unresolved review checks are unchanged.
+
+Snapshots include fact version, evidence, availability state, and `facts_as_of`.
+The fingerprint excludes only that assessment timestamp, so unchanged facts/state
+reuse the original evaluation and its original assessment time. Crossing a deadline
+state creates new history. The four value dimensions remain separate and unscored.
+`tier_rules.evaluate` dispatches saved `tier-policy-v1` contexts to the retained v1
+implementation, preserving old replay behavior. No live evaluations were written
+to introduce these rules.
+
+Local inspection at `2026-09-20T12:00:00Z`: 87 listings before their reported
+deadline, 6 uncertain, 7 past, and 16 unknown. Four jobs have recognized clearance
+evidence. A temporary-copy evaluation produced 8 distinct rejects (7 deadline and
+4 clearance reasons, with overlap) and 108 review results. Replay, idempotency,
+schema comparison, integrity, and foreign-key checks passed. The copy was removed;
+live counts remain 116 jobs, 7 runs, 4 attempts, and zero evaluations.
+
+Remaining operational limitation: ingestion currently refreshes existing jobs'
+last-seen time without updating their descriptions or deadlines. New normalization
+or extraction cannot recover source fields that were never retained. Source refresh
+and expiry handling must be addressed before treating this as a current inventory.
+
+## Qualification gate and prospective queue — September 20
+
+Verification: **361 tests passed**, including 27 qualification-gate cases.
+Tests cover both OR alternatives, branch mixing, commercial-year bounds, unknown
+evidence, negation/waivers, title-only false positives, explicit job exclusions,
+profile changes, migration preservation, rollback safeguards, and hidden held output.
+Temporary-copy migration, schema, integrity, replay, and idempotency checks passed.
+
+`tier-policy-v3` separates mandatory-requirement comparison from tier routing.
+The durable `queue_state` has three values:
+
+| State | Meaning | Treatment |
+| --- | --- | --- |
+| `do_not_pursue` | A known mandatory mismatch, explicit applicant exclusion, or hard constraint rejects the job | No assigned tier or tailoring; retain audit history |
+| `unresolved` | Requirement coverage, applicant evidence, or shared constraints remain unknown | Internal holding; not a request for applicant review |
+| `plausible` | Requirement evidence is supported and shared hard checks are resolved | May proceed to strategy/value assessment; not application authorization |
+
+Policy `evaluate` output shows prospective records by default and counts held and
+excluded records. Use `--show-all` for their audit details. `list` is explicitly
+historical audit output, not a current shortlist. The legacy decision column is
+retained for compatibility; use `queue_state` for the prospective workflow. Legacy
+evaluations have null queue state and are not retroactively classified.
+
+```powershell
+python -m jobsearch.scripts.evaluation_cli --database-url sqlite:///./data/review-copy.db evaluate --applicant-id 1
+python -m jobsearch.scripts.evaluation_cli --database-url sqlite:///./data/review-copy.db evaluate --applicant-id 1 --show-all
+```
+
+Applicant `experience_evidence` is a validated, nullable version-1 JSON object with
+`skills` and `job_exclusions` lists. Each skill records an explicit commercial-years
+lower bound, upper bound, optional expertise assertion, and supporting source text.
+Null means unknown. A lower bound of five supports a three-year minimum; an upper
+bound of two contradicts it. A lower bound of one with unknown upper bound does not
+prove the applicant has less than three years. Project experience is not silently
+converted into commercial tenure. Existing skill names and prose remain stored but
+do not supply missing durations or expertise assertions.
+
+Use the fictional `data/experience_evidence_sample.json` shape with the existing
+applicant CLI update command against a chosen database. `view` includes the evidence.
+Updates replace the entire evidence object, so preserve existing entries when editing.
+Evidence and job-exclusion reasons are private applicant data; use `data/private/`.
+An explicit exclusion identifies a source and source job ID plus the applicant's
+reason. It records a declined job without inventing exact experience durations or
+generalizing the decision to unrelated listings. No live profile update is automatic.
+
+The first extraction grammar recognizes a labeled Requirements section containing
+`Commercial experience: Skill: N+ years, Skill: M+ years OR ...` and affirmative
+`Expertise in Skill, Skill and Skill is a must.` sentences. Comma/AND clauses form
+conjunctions; OR branches remain separate. Skill aliases are limited to explicit
+React.js/React, Node.js/Node, and Next.js/Next spellings. Evidence retains exact source
+spans. Advertising after recognized benefit/other-opportunity boundaries is excluded.
+Unparsed text prevents a fully supported result; ambiguous alternatives, preferences,
+waivers, and recognized negation prevent confident mismatch classification. This is
+not a general natural-language parser. General experience durations, credentials,
+recency, and most job-description formats remain unsupported.
+
+AND fails when a known required clause fails. OR fails only when every branch fails;
+unknown branches stay unknown. Years from different OR branches cannot be combined.
+A title match is retained only as an audit candidate when the gate fails or holds;
+the assigned tier and tailoring are null. Changing applicant evidence, exclusions,
+job inputs, or rule versions creates a distinct snapshot. Saved v1/v2 rule contexts
+still replay through their retained implementations.
+
+Migration `20260920_18` adds nullable applicant evidence and evaluation queue-state
+columns, preserving existing rows. Downgrade refuses populated applicant evidence
+because it has no guaranteed historical copy. After offline migration verification,
+the live database was backed up and migrated on September 21.
+
+Current limitation: existing geography/eligibility checks still require review, so
+this milestone does not automatically populate the prospective queue. The gate's
+supported comparison path is tested, but resolving shared constraints and broadening
+extraction require further work. It must not promote jobs merely because none were
+proven impossible. Value dimensions remain separate; human review prioritization,
+AI classification, and application automation are not implemented.
+
+## Reusable requirement-parser profiles — September 21
+
+Verification: **374 tests passed**, including 13 parser-profile tests covering
+non-software careers, different applicants, validation, CLI selection, history,
+and replay. The 40 focused parser/qualification tests also passed.
+
+The parser's headings, section boundaries, clause patterns, AND/OR separators,
+negation/ambiguity conventions, and skill aliases are now supplied as a validated
+JSON profile. The shared engine constructs requirement trees, preserves source
+spans and incomplete coverage, and compares evidence without career-specific
+branches. Profiles describe language/vocabulary conventions, not an applicant.
+
+Examples: `data/requirement_parser_software.json` preserves the existing conventions;
+`data/requirement_parser_accounting.json` uses professional-experience headings and
+an accounts-payable alias. The same engine is tested with fictional accounting and
+nursing requirements and different applicants. This demonstrates reuse of the
+supported grammar, not comprehensive coverage of those occupations.
+
+```powershell
+python -m jobsearch.scripts.evaluation_cli --database-url sqlite:///./data/review-copy.db evaluate --applicant-id 1 --parser-profile data/requirement_parser_accounting.json --show-all
+```
+
+In Python, use `extract_requirements(job, profile)` and
+`assess(job, applicant_evidence, requirements)`. Direct tree comparison accepts
+`compare(tree, applicant_evidence, profile)`. The repository accepts the same
+dictionary through `evaluate_jobs(..., parser_profile=profile)`. Explicit profiles
+are rejected for legacy applicants without a tier policy rather than silently ignored.
+
+Profile schema 1 requires `name`, positive `revision`, `aliases`, `patterns`, and
+`schema_version`. Supply all patterns shown in the examples. `years_clause` captures
+skill name then numeric years; `expertise_clause` captures the skill list. All other
+patterns use noncapturing groups. Aliases map normalized names directly to canonical
+names; chains/cycles are rejected. Regex syntax, capture counts, and empty-string
+matches are validated. Patterns are trusted local configuration, never accepted
+from a listing; they are not a sandboxed grammar language.
+
+`qualification-v2` extraction snapshots the complete profile along with the parsed
+tree. Profile content changes create distinct evaluation fingerprints even when an
+editor forgets to bump the revision. Historical snapshots replay with their saved
+aliases; older snapshots without a profile retain the frozen compatibility defaults.
+The built-in fallback is packaged Python data, independent of the working directory.
+No schema change is required for this refactor; head remains `20260920_18`.
+
+That parser-profile checkpoint did not implement the richer private applicant draft, approximate-year
+tolerance, recency, transferable experience, licenses, or other new requirement
+types. New fact types still require shared engine support and tests; new vocabulary
+and text conventions for the existing types can be passed in as data.
+
+## Rich evidence and cross-career validation — September 21
+
+Applicant `experience_evidence` now also accepts schema 2 through the existing
+repository and applicant CLI. `data/accounting_applicant_sample.json` is a clearly
+fictional, importable example. Evaluations read the saved database record, not a
+particular applicant's file or a career-specific code path. Each applicant retains
+one shared policy and multiple strategies. Schema 1 evidence remains compatible.
+
+Schema 2 separates reported approximate commercial duration, evidence state,
+commercial/project context, depth, recency, expertise, aliases, explicit transfer
+targets, and source statements. Unknown is different from explicitly absent.
+Approximate duration shortfalls produce `gap`, not automatic rejection; explicit
+transfer targets produce `adjacent`, not proof of the exact qualification. Both
+remain internally held. Depth and recency are preserved for explanation but are
+not yet used as requirement comparators. Expertise is never inferred from years.
+The current comparison policy only supports holding numeric gaps and transferable
+evidence; it does not impose an invented tolerance cutoff. Licenses and education
+still need typed comparison support; background text alone cannot satisfy them.
+
+Parser-profile schema 2 adds configurable `capability_signals` containing `name`,
+`skill`, and `title_pattern`. See `data/requirement_parser_cross_career.json`.
+Signals compare title spans to recorded professional evidence and describe **role
+relevance only**. They neither prove eligibility nor override a mismatch. This
+configuration is deliberately narrow and can miss other titles; it is not a
+complete occupation classifier. Profiles, evidence, source descriptions, policy,
+rule version, and facts are retained in evaluation snapshots.
+
+The report command reads two or more database-backed applicants and records
+separate relevance, qualification, queue, and tier results. It has no network calls,
+but migrates and writes evaluations to its explicitly selected database. Use an
+offline copy and an ignored private output path:
+
+```powershell
+.\.venv\Scripts\python.exe -m jobsearch.scripts.cross_career_report --database-url sqlite:///./data/private/cross-career-trial.db --applicant-id 1 --applicant-id 2 --parser-profile data/requirement_parser_cross_career.json --as-of 2026-09-21T12:00:00Z --output data/private/new-comparison.json
+```
+
+Optional `--expectations` accepts a JSON object with `cases`, each containing
+`applicant_id`, `job_id`, `expected` record fields, and `reason`. A failing case
+rolls back the evaluation batch. Existing report paths are never overwritten.
+Keep applicant-specific expectations and reports private.
+
+Verification includes database round trips, numeric gaps, unknown/absent evidence,
+explicit transfers, AND/OR alternatives, two-career fixtures, snapshot replay,
+evidence revisions, parser validation, and regression tests. An offline real-data
+trial used 116 existing software/IT listings plus 25 newly fetched accounting
+listings, with both applicant profiles persisted in the trial database. All 282
+historical evaluations replayed exactly. The title/evidence signals separated the
+two careers, but **no fully qualified prospective matches were established**.
+Federal qualification prose, shared eligibility, and availability remain blockers.
+The existing IT sample is broad IT, not a curated software-only test set, and
+contains no established positive core-stack acceptance example.
+
+The accounting collection used one successful request through the existing live
+USAJOBS budget, capped at one page of 25. It uses accounting series 0510 as defined
+by [OPM](https://www.opm.gov/policy-data-oversight/classification-qualifications/general-schedule-qualification-standards/0500/accounting-series-0510/)
+and the [USAJOBS search API](https://developer.usajobs.gov/api-reference/get-api-search).
+Its collector is disabled after the trial. The run is intentionally partial;
+it does not represent the full accounting inventory. The live database retains
+one applicant and no evaluations; rich profiles and trial evaluations are in the
+private offline database. Do not collect through that copy's stale request budgets.
+No AI scoring, worker, application automation, deployment, commit, or push was run.
+
+## Qualification section extraction — September 21
+
+`data/requirement_parser_federal.json` is an opt-in schema-3 profile. It adds
+`qualification_sections` to schema 2: an `ats_type`, source-normalized `headings`,
+an `include` list, and named clause definitions (`name`, `kind`, `pattern`).
+Clause patterns use named regex captures; vocabulary stays in configuration.
+Select it with the existing evaluator/report `--parser-profile` option.
+
+`qualification-v3` extraction retains Qualifications, Requirements, and Education
+sections independently. `qualification-sections-v1` captures experience durations,
+grade references, degrees, graduate education duration, semester credits,
+credential mentions, alternative markers, combination paths, substitution
+restrictions, and external references. All captures retain original source offsets;
+unparsed spans remain available. Summary and Duties are outside this extraction.
+External references are recorded, not fetched or treated as satisfied conditions.
+
+This is **clause extraction, not resolved qualification logic**. A credential mention
+may belong to an optional alternative; a grade reference may describe required
+prior experience rather than the advertised grade. OR markers include ordinary
+prose alternatives and are not yet assembled into logical branches. Captures have
+`scope_status=unresolved`; complete coverage is never asserted by this pass.
+For matching sources, unresolved sections prevent the older Requirements-only
+grammar from declaring qualification or rejecting an applicant on an isolated
+clause. Explicit applicant exclusions and independent shared-constraint rejections
+still apply. Other sources and older parser profiles retain their behavior.
+
+The existing software/IT and accounting data were evaluated in a separate ignored
+database copy using both saved applicants. All 125 federal listings yielded
+qualification sections. Observations included 105 specialized-experience duration
+phrases, 64 credit-hour phrases, and 46 credential mentions. These counts describe
+extraction, not accuracy or satisfied qualifications. All 564 old/new snapshots
+replayed exactly; no prospective matches were newly established.
+
+The full suite passed 405 tests, including nine new section extraction tests.
+Next work is explicit branch/grade scope and typed applicant education/credential
+comparison. No migration, collection, or live database update was needed.
+
+## Qualification paths and typed evidence — September 21
+
+`data/requirement_parser_federal_paths.json` is an opt-in schema-4 profile. It
+retains section extraction and adds configured basic/grade boundaries, explicit
+alternative separators, and whole-branch leaf rules. A basic degree alternative
+and specialized experience at a particular grade remain distinct components.
+Incidental references to lower grades do not create advertised-grade branches.
+Unknown alternatives remain in the tree; evidence from different grades is never
+combined. Every node retains its exact source span. The grammar deliberately
+recognizes only a small set of explicit heading/alternative conventions.
+
+Evidence schema 3 adds a required `qualifications` list to schema 2. The existing
+database repository and applicant CLI validate and persist it. See the fictional
+`data/accounting_qualifications_sample.json`:
+
+- Degree facts specify `level`, `field`, nullable `attained`, and `source`.
+- Credential facts specify `name`, nullable `attained`, `current`,
+  `by_examination`, and `source`.
+- Credit facts specify `field`, nullable exact `semester_hours`, and `source`.
+
+Missing facts remain unknown. Degree facts do not imply course credits; background
+text does not establish typed facts. Current credential status and examination
+basis are checked only when required. Degree alternatives list their accepted
+levels explicitly; the engine does not infer a degree hierarchy. Duplicate facts
+are rejected rather than summed. Source assertions are not independently verified.
+Schemas 1 and 2 remain compatible, with typed facts unknown when absent.
+
+The path configuration supplies `sections`, `basic_start`, `basic_end`,
+`grade_heading` (one named `grade` capture), `branch_separator`, `wrapper`,
+`local_or`, and `leaf_rules`. Each leaf rule has a full-match pattern and typed
+`requirement` template; `$capture` references named captures. Templates support
+`degree`, `credential`, and `credits`. Career vocabulary is configuration data.
+Negated, conditional, partially recognized, or conflicting whole branches stay
+unresolved. No arbitrary prose OR is automatically converted to a branch.
+
+For example, select `--parser-profile data/requirement_parser_federal_paths.json`
+with the existing evaluation/report commands. Snapshots contain the full profile,
+`qualification-v4` extraction and `qualification-paths-v1` trees, typed evidence,
+and local component comparisons. Report `qualification_paths` and
+`*_requirement_components` counters describe local requirements, **not full-job
+qualification or prospective matches**. Basic and grade components are not yet
+assembled into an overall eligibility proof across all source sections.
+
+Offline verification against the 141 stored jobs found four explicit basic blocks
+and nine explicit grade blocks. Two basic degree components were supported for
+the database-backed synthetic accountant; the remaining components stayed unknown.
+No prospective matches were established. All 846 historical evaluations replayed
+exactly. Full suite: **421 passed** (16 new tests); focused paths/sections/rich
+evidence suite: **41 passed**. No schema migration or live database change was
+needed. Next work is specialized-experience evidence and broader scope coverage;
+foreign education, accreditation, equivalent combinations, and overall shared
+eligibility remain unresolved.
+
+## Specialized experience and work evidence — September 22
+
+The opt-in `data/requirement_parser_specialized.json` extends the schema-4 path
+profile with two whole-branch specialized-experience patterns. They cover two
+accounting duty formulations seen in the stored data. Each template supplies
+stable activity IDs, required months, and a grade system; the required prior
+grade is captured from the source. The advertised grade stays separate. The
+engine contains no accounting-specific duty names or grade hierarchy.
+
+Applicant evidence schema 4 extends schema 3 with `work_examples`. Each example
+requires `id`, `activities`, nullable `months`, `grade_equivalences`, and `source`.
+Every grade equivalence requires its own `system`, `grade`, and `source` assertion.
+`months` means relevant duration performing the listed activities together, not
+total career tenure or the length of an unrelated job. The public
+`data/accounting_work_sample.json` is explicitly fictional test evidence.
+The existing applicant repository and CLI persist this evidence; no migration is
+needed. Earlier evidence schemas retain their behavior and have unknown work proof.
+
+Specialized-experience comparison requires the duty set, relevant duration, and
+explicit grade equivalence in one example. Missing activities, missing duration,
+or missing equivalence stay unknown. A known duration shortfall is a `gap`, not
+an automatic rejection. Examples are not combined, their months are not summed,
+and a numerically higher grade does not imply equivalence. These constraints avoid
+double-counting or manufacturing a qualifying work history, but can hold legitimate
+experience spread across several assignments. Evidence remains source-backed
+assertions, not an independent verification or an agency determination.
+
+Use `--parser-profile data/requirement_parser_specialized.json` with the existing
+evaluator or report command against an offline database. Full source spans,
+templates, applicant examples, duty/duration/grade checks, and unknown alternatives
+are retained in snapshots. Partial, negated, conditional, or additional unrecognized
+branch text remains unresolved. The grammar is intentionally narrow; it is not
+general semantic matching of experience descriptions.
+
+Verification: **441 tests passed**, including 20 new specialized-experience tests;
+the focused specialized/path suite passed 36 tests. On the 141 stored jobs, the
+synthetic accountant gained one supported GS-09 local experience route, while
+GS-11 remained unknown. All 1,128 old/new evaluations replayed exactly in the
+offline copy. No full-job prospective match was established. Overall requirement
+composition, broader duty coverage, and shared eligibility still need work.
+No live database update, API call, worker, deployment, commit, or push occurred.
+
+## Overall qualification composition — September 22
+
+`data/requirement_parser_composed.json` opts into parser schema 5. It adds a
+`qualification_composition` configuration with a target `section` and a full-match
+`bridge` pattern connecting the basic requirement to the grade requirements.
+`qualification-v5` extraction snapshots `qualification-composition-v1` output.
+Earlier parser profiles retain component-only behavior.
+
+Where the source scope is explicit, the composed rule is **basic requirements
+AND any one grade route**. Per-grade results include the same shared basic
+requirement; a supported grade cannot rescue a failed basic requirement. Unknown
+alternatives remain viable, and unrelated sections or duplicate grades are never
+merged. The parser currently requires one basic block and unique grade headings
+in one configured section, linked by the recognized bridge.
+
+Remaining leading text and other configured qualification sections are retained
+as uncovered evidence. They prevent both qualification approval and a composed
+rejection, since they may contain exceptions or additional conditions. Complete
+structural coverage still requires applicant evidence to support the composed
+tree. Coverage is limited to the configured normalized qualification sections;
+this is not a general understanding of every statement in an announcement.
+
+Reports now include `overall_qualification` (coverage, blockers, and combined
+per-grade statuses) separately from `readiness_blockers` (unresolved/rejecting
+shared checks such as availability, geography, and eligibility). A supported
+qualification assessment cannot clear those checks or authorize an application.
+
+Full suite: **455 passed**; focused composition/specialized suite: **34 passed**.
+The real-data trial composed routes for two listings. For the synthetic accountant,
+job 117's basic requirement AND GS-09 route were supported together, but uncovered
+source conditions and shared readiness checks kept the overall result unresolved.
+All 1,410 saved evaluations replayed exactly in the offline copy. No live changes,
+new collection, migration, worker, deployment, commit, or push were performed.
+Next is resolving the specific uncovered conditions and shared eligibility facts;
+broader source conventions and grade structures still need coverage.
+
+## Source conditions and eligibility separation — September 22
+
+The opt-in schema-6 profile `data/requirement_parser_conditions.json` adds
+`qualification_conditions`: whole-block patterns for explicitly recognized source
+guidance and foreign-education conditions. Vocabulary, accepted citizenship
+spellings, country codes, and application obligations are supplied as data. The
+current profile recognizes two specific source boilerplate forms; changed or
+additional wording stays unresolved. Matching text is retained as evidence rather
+than discarded. `qualification-v6` and `qualification-conditions-v1` are snapshotted.
+
+Degree and credit facts may now include nullable `education_country`, nullable
+`recognized_in` (country-code list), and nullable `transcript_available`.
+Country codes are uppercase two-letter identifiers. These fields are optional for
+existing evidence and require explicit source assertions when supplied; applicant
+location, nationality, degree names, and career history do not fill them in.
+`data/accounting_conditions_sample.json` is fictional evidence with an explicit
+US education-country assertion. No real applicant evidence was enriched.
+
+A recognized foreign-education condition follows the degree or credit branch
+used to qualify. A domestic education assertion or explicit recognition in the
+required country can support that branch. Missing origin/recognition remains
+unknown. Facts from different credentials cannot be combined to manufacture
+support, and a qualifying non-education alternative does not require degree
+provenance. These are applicant assertions, not independent credential verification.
+
+Source citizenship conditions compare against positive citizenship assertions
+already stored in the shared search policy. Empty lists and other citizenships
+do not establish that the applicant lacks the required citizenship. A new separate
+`citizenship` check reports support or review; all other hiring eligibility checks
+remain independent. Resume evidence and conditional transcript requirements are
+reported under `source_conditions` as application-preparation obligations, not
+qualification failures. Actual possession/submission of documents is not inferred;
+`transcript_available` is retained but does not automatically complete those tasks.
+
+Full suite: **478 passed**, including 23 new condition/evidence tests. The real-data
+trial used a new offline copy and updated only the fictional applicant's education
+country and citizenship assertions. Job 117's parsed qualification tree and
+citizenship condition were supported for that applicant. The full job still stayed
+held: availability, work arrangement, geography, employment, policy exclusions,
+and other eligibility checks remain unresolved. One qualification pass does not
+establish broad parser accuracy or independent employer eligibility.
+
+All **1,692 historical evaluations** replayed exactly. The live database remained
+unchanged, and no migration, network request, worker, deployment, commit, or push
+was performed. Next work is structured shared-job facts and explicit resolution
+of the remaining shared constraints, without treating missing data as a pass.
+
+### Software-profile baseline validation — September 23, 2026
+
+An offline validation using the unchanged database-backed software applicant
+exposed a substantial extraction gap. Ten manually inspected real listings had
+expectations frozen before evaluation: all ten routed as expected, but only one
+passed the minimum required-concept extraction check. Correctly holding a job
+does not demonstrate that its requirements were understood. The known stack
+mismatch still rejected when the manual exclusion was removed in memory.
+
+Across 141 stored jobs, 36 were do-not-pursue and 105 unresolved; none received a
+tier. Qualification was unknown for 140 and mismatched for one. Four synthetic
+comparison controls passed, but are not evidence of real positive matches.
+The stored sample lacks a verified core-stack positive vacancy; matching terms
+in advertisements for other openings were excluded from that assessment.
+
+Validation replayed 1,739 historical evaluations exactly and passed database
+integrity checks. The focused regression suite passed 79 tests; the earlier
+478-test full-suite result was not rerun. Private expectations and reports remain
+Git-ignored. No production parser changes or live database writes occurred.
+The next priority is ordinary software requirement sentences/headings and
+correct separation of multiple advertised roles, before expanding readiness
+checks. Extraction failures must remain distinct from missing applicant evidence.
+
+### Scope decision - September 24, 2026
+
+Broader career and federal-parser expansion is paused. The active milestone is a
+useful local software-job pilot with real positive candidates and a checked
+shortlist. [ROADMAP.md](ROADMAP.md) records next steps, completion criteria and
+resume notes. This supersedes earlier next-step suggestions; safety checks remain.
+
+September 24 checkpoint: full suite rerun, **478 passed**. Step 1 has an ignored
+frozen acceptance artifact containing ten real source snapshots and expectations:
+eight software development cases and two deferred federal regressions. None is an
+unseen validation case. Saved backups/cache supplied no additional job identities.
+Real positive candidates and a separately reserved validation subset are still
+needed; the acceptance set is explicitly incomplete. No parser changes or live
+collection were made for this checkpoint.

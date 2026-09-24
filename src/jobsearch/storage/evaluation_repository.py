@@ -9,6 +9,9 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from jobsearch.evaluation import rules, tier_rules
+from jobsearch.evaluation.job_facts import extract
+from jobsearch.evaluation.qualification import extract_requirements
+from jobsearch.evaluation.parser_profiles import resolve_profile
 from jobsearch.models import Job, JobEvaluation, SearchPolicy
 from jobsearch.storage.applicant_repository import ApplicantRepository
 from jobsearch.storage.policy_repository import PolicyRepository
@@ -45,10 +48,17 @@ class EvaluationRepository:
             raise ValueError(f"Applicant {applicant_id} does not exist")
         return applicant
 
-    def evaluate_jobs(self, applicant_id: int, job_id: int | None = None) -> tuple[list[JobEvaluation], dict[str, int]]:
+    def evaluate_jobs(self, applicant_id: int, job_id: int | None = None, *, as_of: datetime | None = None, parser_profile: dict | None = None) -> tuple[list[JobEvaluation], dict[str, int]]:
         applicant = self._applicant(applicant_id)
+        profile = resolve_profile(parser_profile)
+        as_of = as_of or datetime.now(timezone.utc)
+        if as_of.tzinfo is None or as_of.utcoffset() is None:
+            raise ValueError("as_of must be timezone-aware")
+        as_of = as_of.astimezone(timezone.utc)
         policy = (PolicyRepository(self.session).view(applicant_id)
                   if self.session.get(SearchPolicy, applicant_id) is not None else None)
+        if parser_profile is not None and policy is None:
+            raise ValueError("A parser profile requires a tier-policy applicant")
         statement = select(Job).order_by(Job.id)
         if job_id is not None:
             if isinstance(job_id, bool) or not isinstance(job_id, int) or job_id <= 0:
@@ -70,11 +80,18 @@ class EvaluationRepository:
                 context = {
                     "applicant_id": applicant.id, "job_id": job.id,
                     "search_policy": policy,
-                    "applicant": _snapshot(applicant, ("location", "professional_summary", "experience_summary", "skills")),
+                    "applicant": _snapshot(applicant, ("location", "professional_summary", "experience_summary", "skills", "experience_evidence")),
                     "job": _snapshot(job, JOB_FIELDS + ("employment_type", "description", "source", "source_job_id", "job_url", "apply_url", "ats_type", "status")),
                     "rules_version": tier_rules.RULES_VERSION,
                 }
-            fingerprint = hashlib.sha256(json.dumps(context, sort_keys=True, ensure_ascii=True, allow_nan=False).encode()).hexdigest()
+                context["facts_as_of"] = as_of.isoformat()
+                context["job_facts"] = extract(context["job"], as_of)
+                context["qualification_requirements"] = extract_requirements(context["job"], profile)
+            # Wall-clock passage alone must not create duplicate history. The
+            # derived availability state IS fingerprinted, so crossing a deadline
+            # creates a new result. Reused results retain their original as-of time.
+            fingerprint_context = {k: v for k, v in context.items() if k != "facts_as_of"}
+            fingerprint = hashlib.sha256(json.dumps(fingerprint_context, sort_keys=True, ensure_ascii=True, allow_nan=False).encode()).hexdigest()
             existing = self.session.scalar(select(JobEvaluation).where(
                 JobEvaluation.job_id == job.id,
                 JobEvaluation.applicant_id == applicant.id,
@@ -92,6 +109,7 @@ class EvaluationRepository:
                 input_fingerprint=fingerprint, input_context=context,
                 tier=result.tier if policy is not None else None,
                 tailoring_level=result.tailoring_level if policy is not None else None,
+                queue_state=result.queue_state if policy is not None else None,
             )
             self.session.add(evaluation)
             self.session.flush()

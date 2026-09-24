@@ -1,0 +1,138 @@
+{
+  "full_name": "SYNTHETIC TEST ONLY - Accounting Applicant",
+  "professional_summary": "Fictional accountant for cross-career validation; not a real person.",
+  "experience_evidence": {
+    "schema_version": 3,
+    "comparison_policy": {
+      "numeric_shortfall": "hold",
+      "transferable": "hold"
+    },
+    "background": [
+      "Fictional B.S. Accounting and CPA for testing only."
+    ],
+    "job_exclusions": [],
+    "skills": [
+      {
+        "skill": "accounting",
+        "aliases": [],
+        "state": "established",
+        "commercial": true,
+        "approximate_years": 8,
+        "depth": "core",
+        "recency": "current",
+        "expertise": true,
+        "transfers_to": [],
+        "source": "Synthetic test fact: eight years of professional accounting."
+      },
+      {
+        "skill": "financial reporting",
+        "aliases": [],
+        "state": "established",
+        "commercial": true,
+        "approximate_years": 8,
+        "depth": "core",
+        "recency": "current",
+        "expertise": true,
+        "transfers_to": [],
+        "source": "Synthetic test fact: prepares financial statements and reports."
+      },
+      {
+        "skill": "accounts payable",
+        "aliases": [
+          "a/p"
+        ],
+        "state": "established",
+        "commercial": true,
+        "approximate_years": 5,
+        "depth": "working",
+        "recency": "recent",
+        "expertise": null,
+        "transfers_to": [],
+        "source": "Synthetic test fact: five years of accounts payable."
+      },
+      {
+        "skill": "bookkeeping",
+        "aliases": [],
+        "state": "established",
+        "commercial": true,
+        "approximate_years": 6,
+        "depth": "working",
+        "recency": "recent",
+        "expertise": null,
+        "transfers_to": [],
+        "source": "Synthetic test fact: six years of bookkeeping."
+      },
+      {
+        "skill": "GAAP",
+        "aliases": [],
+        "state": "established",
+        "commercial": true,
+        "approximate_years": 8,
+        "depth": "core",
+        "recency": "current",
+        "expertise": true,
+        "transfers_to": [],
+        "source": "Synthetic test fact: GAAP expertise."
+      },
+      {
+        "skill": "software development",
+        "aliases": [
+          "software engineering"
+        ],
+        "state": "none",
+        "commercial": false,
+        "approximate_years": null,
+        "depth": "unknown",
+        "recency": null,
+        "expertise": false,
+        "transfers_to": [],
+        "source": "Synthetic test fact: no software development experience."
+      },
+      {
+        "skill": "C#",
+        "aliases": [
+          ".net"
+        ],
+        "state": "none",
+        "commercial": false,
+        "approximate_years": null,
+        "depth": "unknown",
+        "recency": null,
+        "expertise": false,
+        "transfers_to": [],
+        "source": "Synthetic test fact: no .NET experience."
+      },
+      {
+        "skill": "React",
+        "aliases": [
+          "react.js"
+        ],
+        "state": "none",
+        "commercial": false,
+        "approximate_years": null,
+        "depth": "unknown",
+        "recency": null,
+        "expertise": false,
+        "transfers_to": [],
+        "source": "Synthetic test fact: no React experience."
+      }
+    ],
+    "qualifications": [
+      {
+        "kind": "degree",
+        "level": "bachelor",
+        "field": "accounting",
+        "attained": true,
+        "source": "Synthetic test fact: completed bachelor's degree in accounting."
+      },
+      {
+        "kind": "credential",
+        "name": "Certified Public Accountant",
+        "attained": true,
+        "current": null,
+        "by_examination": null,
+        "source": "Synthetic test fact: CPA attained; current status and examination basis unspecified."
+      }
+    ]
+  }
+}

@@ -1,0 +1,125 @@
+{
+  "schema_version": 3,
+  "name": "federal-qualification-sections",
+  "revision": 1,
+  "aliases": {
+    "react.js": "react",
+    "reactjs": "react",
+    "node.js": "node",
+    "nodejs": "node",
+    "next.js": "next",
+    "nextjs": "next"
+  },
+  "patterns": {
+    "section_end": "\\b(?:Benefits|What we offer|Sounds good for you|NOT YOUR TECH STACK)\\b",
+    "experience_heading": "\\bCommercial experience:\\s*",
+    "expertise_clause": "Expertise in ([^:;\\n]+?) is a must\\.",
+    "formatting": "[\\s*\\-•]+",
+    "section_heading": "(?<!other )\\bRequirements(?: for [^:\\n]{1,120})?:",
+    "negation_prefix": "\\b(?:no|not|without)\\s+$",
+    "experience_end": "\\b(?:Expertise in|Other requirements|Preferred|Nice.to.have|Education|Qualifications)\\b",
+    "or_separator": "\\s+OR\\s+",
+    "skill_separator": ",\\s*|\\s+and\\s+",
+    "and_separator": ",\\s*(?:and\\s+)?|\\s+and\\s+",
+    "ambiguity": "\\b(?:equivalent|waiv\\w*|either|unless|except\\w*|preferred|optional|nice.to.have|not required)\\b",
+    "years_clause": "\\s*([\\w.+# -]+?):\\s*(\\d+(?:\\.\\d+)?)\\+?\\s+years\\s*[.;]?\\s*",
+    "or_word": "\\bor\\b",
+    "skill_name": "[\\w.+# -]+"
+  },
+  "capability_signals": [
+    {
+      "name": "software role family",
+      "skill": "software development",
+      "title_pattern": "\\b(?:software|developer|programmer|appsw)\\b"
+    },
+    {
+      "name": "accounting role family",
+      "skill": "accounting",
+      "title_pattern": "\\b(?:accountant|accounting)\\b"
+    },
+    {
+      "name": "accounts payable role",
+      "skill": "accounts payable",
+      "title_pattern": "\\baccounts payable\\b"
+    },
+    {
+      "name": "bookkeeping role",
+      "skill": "bookkeeping",
+      "title_pattern": "\\bbookkeep(?:er|ing)\\b"
+    }
+  ],
+  "qualification_sections": {
+    "ats_type": "usajobs",
+    "headings": [
+      "Summary",
+      "Qualifications",
+      "Duties",
+      "Requirements",
+      "Education",
+      "Who may apply",
+      "Application closes"
+    ],
+    "include": [
+      "Qualifications",
+      "Requirements",
+      "Education"
+    ],
+    "clauses": [
+      {
+        "name": "specialized-duration",
+        "kind": "specialized_experience",
+        "pattern": "\\b(?P<duration>one|two|three|four|\\d+(?:\\.\\d+)?)\\s+(?P<unit>years?|months?)\\s+of\\s+(?P<experience_type>specialized experience)\\b"
+      },
+      {
+        "name": "grade-reference",
+        "kind": "grade_reference",
+        "pattern": "\\b(?P<system>GS)[- ](?P<grade>\\d{1,2})(?!\\d)\\b"
+      },
+      {
+        "name": "degree-reference",
+        "kind": "education",
+        "pattern": "\\b(?P<level>bachelor['’]?s|master['’]?s|doctoral|Ph\\.?D\\.?)\\s+(?:or equivalent\\s+)?(?:graduate\\s+)?degree\\b"
+      },
+      {
+        "name": "graduate-duration",
+        "kind": "education_duration",
+        "pattern": "\\b(?P<duration>one|two|three|four|\\d+)\\s+(?:full\\s+)?years?\\s+of\\s+(?:progressively\\s+)?(?:higher[- ]level\\s+)?graduate\\s+(?:level\\s+)?education\\b"
+      },
+      {
+        "name": "semester-credit",
+        "kind": "education_credits",
+        "pattern": "\\b(?P<amount>twenty[- ]four|\\d+)\\s+(?P<unit>semester hours)\\s+(?:in|of)\\s+(?P<subject>accounting or auditing|accounting|auditing|business law)\\b"
+      },
+      {
+        "name": "credential-reference",
+        "kind": "credential",
+        "pattern": "\\b(?P<credential>Certified Public Accountant|Certified Internal Auditor)\\b"
+      },
+      {
+        "name": "alternative-marker",
+        "kind": "alternative",
+        "pattern": "\\b(?P<operator>OR)\\b"
+      },
+      {
+        "name": "combined-path",
+        "kind": "combined_path",
+        "pattern": "\\b(?P<path>combination of education and experience|equivalent combination of[^.;]+)"
+      },
+      {
+        "name": "no-substitution",
+        "kind": "substitution_restriction",
+        "pattern": "\\b(?P<restriction>no substitution of education for experience is permitted|education may not be substituted for[^.;]+)"
+      },
+      {
+        "name": "additional-requirement",
+        "kind": "additional_requirement",
+        "pattern": "\\b(?P<relationship>in addition to meeting the basic requirement(?: above)?)\\b"
+      },
+      {
+        "name": "linked-requirement",
+        "kind": "external_reference",
+        "pattern": "https?://[^\\s<>]+"
+      }
+    ]
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "experience_evidence": {
+    "schema_version": 1,
+    "skills": [
+      {"skill": "Example language", "commercial_years_min": 5, "commercial_years_max": null, "expertise": null, "source": "Fictional example: at least five years of commercial use"},
+      {"skill": "Example framework", "commercial_years_min": 0, "commercial_years_max": 0, "expertise": false, "source": "Fictional example: personal projects only, no commercial experience"}
+    ],
+    "job_exclusions": []
+  }
+}

@@ -1,0 +1,219 @@
+{
+  "schema_version": 5,
+  "name": "federal-composed-qualification",
+  "revision": 1,
+  "aliases": {
+    "react.js": "react",
+    "reactjs": "react",
+    "node.js": "node",
+    "nodejs": "node",
+    "next.js": "next",
+    "nextjs": "next"
+  },
+  "patterns": {
+    "section_end": "\\b(?:Benefits|What we offer|Sounds good for you|NOT YOUR TECH STACK)\\b",
+    "experience_heading": "\\bCommercial experience:\\s*",
+    "expertise_clause": "Expertise in ([^:;\\n]+?) is a must\\.",
+    "formatting": "[\\s*\\-•]+",
+    "section_heading": "(?<!other )\\bRequirements(?: for [^:\\n]{1,120})?:",
+    "negation_prefix": "\\b(?:no|not|without)\\s+$",
+    "experience_end": "\\b(?:Expertise in|Other requirements|Preferred|Nice.to.have|Education|Qualifications)\\b",
+    "or_separator": "\\s+OR\\s+",
+    "skill_separator": ",\\s*|\\s+and\\s+",
+    "and_separator": ",\\s*(?:and\\s+)?|\\s+and\\s+",
+    "ambiguity": "\\b(?:equivalent|waiv\\w*|either|unless|except\\w*|preferred|optional|nice.to.have|not required)\\b",
+    "years_clause": "\\s*([\\w.+# -]+?):\\s*(\\d+(?:\\.\\d+)?)\\+?\\s+years\\s*[.;]?\\s*",
+    "or_word": "\\bor\\b",
+    "skill_name": "[\\w.+# -]+"
+  },
+  "capability_signals": [
+    {
+      "name": "software role family",
+      "skill": "software development",
+      "title_pattern": "\\b(?:software|developer|programmer|appsw)\\b"
+    },
+    {
+      "name": "accounting role family",
+      "skill": "accounting",
+      "title_pattern": "\\b(?:accountant|accounting)\\b"
+    },
+    {
+      "name": "accounts payable role",
+      "skill": "accounts payable",
+      "title_pattern": "\\baccounts payable\\b"
+    },
+    {
+      "name": "bookkeeping role",
+      "skill": "bookkeeping",
+      "title_pattern": "\\bbookkeep(?:er|ing)\\b"
+    }
+  ],
+  "qualification_sections": {
+    "ats_type": "usajobs",
+    "headings": [
+      "Summary",
+      "Qualifications",
+      "Duties",
+      "Requirements",
+      "Education",
+      "Who may apply",
+      "Application closes"
+    ],
+    "include": [
+      "Qualifications",
+      "Requirements",
+      "Education"
+    ],
+    "clauses": [
+      {
+        "name": "specialized-duration",
+        "kind": "specialized_experience",
+        "pattern": "\\b(?P<duration>one|two|three|four|\\d+(?:\\.\\d+)?)\\s+(?P<unit>years?|months?)\\s+of\\s+(?P<experience_type>specialized experience)\\b"
+      },
+      {
+        "name": "grade-reference",
+        "kind": "grade_reference",
+        "pattern": "\\b(?P<system>GS)[- ](?P<grade>\\d{1,2})(?!\\d)\\b"
+      },
+      {
+        "name": "degree-reference",
+        "kind": "education",
+        "pattern": "\\b(?P<level>bachelor['’]?s|master['’]?s|doctoral|Ph\\.?D\\.?)\\s+(?:or equivalent\\s+)?(?:graduate\\s+)?degree\\b"
+      },
+      {
+        "name": "graduate-duration",
+        "kind": "education_duration",
+        "pattern": "\\b(?P<duration>one|two|three|four|\\d+)\\s+(?:full\\s+)?years?\\s+of\\s+(?:progressively\\s+)?(?:higher[- ]level\\s+)?graduate\\s+(?:level\\s+)?education\\b"
+      },
+      {
+        "name": "semester-credit",
+        "kind": "education_credits",
+        "pattern": "\\b(?P<amount>twenty[- ]four|\\d+)\\s+(?P<unit>semester hours)\\s+(?:in|of)\\s+(?P<subject>accounting or auditing|accounting|auditing|business law)\\b"
+      },
+      {
+        "name": "credential-reference",
+        "kind": "credential",
+        "pattern": "\\b(?P<credential>Certified Public Accountant|Certified Internal Auditor)\\b"
+      },
+      {
+        "name": "alternative-marker",
+        "kind": "alternative",
+        "pattern": "\\b(?P<operator>OR)\\b"
+      },
+      {
+        "name": "combined-path",
+        "kind": "combined_path",
+        "pattern": "\\b(?P<path>combination of education and experience|equivalent combination of[^.;]+)"
+      },
+      {
+        "name": "no-substitution",
+        "kind": "substitution_restriction",
+        "pattern": "\\b(?P<restriction>no substitution of education for experience is permitted|education may not be substituted for[^.;]+)"
+      },
+      {
+        "name": "additional-requirement",
+        "kind": "additional_requirement",
+        "pattern": "\\b(?P<relationship>in addition to meeting the basic requirement(?: above)?)\\b"
+      },
+      {
+        "name": "linked-requirement",
+        "kind": "external_reference",
+        "pattern": "https?://[^\\s<>]+"
+      }
+    ]
+  },
+  "qualification_paths": {
+    "sections": [
+      "Qualifications",
+      "Education"
+    ],
+    "basic_start": "\\bBasic Requirement(?:s)? for [^:]{1,180}:\\s*",
+    "basic_end": "\\bIn addition to meeting the basic requirement(?: above)?",
+    "grade_heading": "\\b(?=Specialized Experience|GS-\\d{2}\\s+Specialized and Other Experience)(?:Specialized Experience[,]?\\s*)?GS-(?P<grade>\\d{2})(?:\\s+Specialized and Other Experience)?\\s*:\\s*",
+    "branch_separator": "\\s+OR\\s+(?=[A-Z]\\.\\s|Education:|Combination of Education and Experience:|Superior Academic Achievement:)",
+    "wrapper": "^(?:[A-Z]\\.\\s*)?(?:Degree|Education):\\s*",
+    "local_or": ";\\s+or\\s+",
+    "leaf_rules": [
+      {
+        "pattern": "Bachelor['’]s degree \\(or higher degree\\) in (?P<field>accounting|nursing|computer science)\\.?",
+        "requirement": {
+          "op": "degree",
+          "levels": [
+            "bachelor",
+            "master",
+            "doctoral"
+          ],
+          "field": "$field"
+        }
+      },
+      {
+        "pattern": "Bachelor['’]s degree in (?P<field>accounting|nursing|computer science)\\.?",
+        "requirement": {
+          "op": "degree",
+          "levels": [
+            "bachelor"
+          ],
+          "field": "$field"
+        }
+      },
+      {
+        "pattern": "(?:A certificate as )?(?P<name>Certified Public Accountant|Certified Internal Auditor|Registered Nurse), obtained through written examination\\.?",
+        "requirement": {
+          "op": "credential",
+          "name": "$name",
+          "current": false,
+          "by_examination": true
+        }
+      },
+      {
+        "pattern": "(?:A certificate as )?(?P<name>Certified Public Accountant|Certified Internal Auditor|Registered Nurse)\\.?",
+        "requirement": {
+          "op": "credential",
+          "name": "$name",
+          "current": false,
+          "by_examination": false
+        }
+      },
+      {
+        "pattern": "(?P<hours>\\d+) semester hours in (?P<field>accounting|auditing|computer science)\\.?",
+        "requirement": {
+          "op": "credits",
+          "field": "$field",
+          "minimum": "$hours"
+        }
+      },
+      {
+        "pattern": "(?:One|1) year of specialized experience which includes experience analyzing financial data in order to solve accounting problems using an automated financial system\\. This definition of specialized experience is typical of work performed at the (?:second lower|next lower) grade/level position in the federal service \\(GS-(?P<grade>\\d{2})\\)\\.",
+        "requirement": {
+          "op": "specialized_experience",
+          "activities": [
+            "financial_data_analysis",
+            "accounting_problem_resolution",
+            "automated_financial_systems"
+          ],
+          "minimum_months": 12,
+          "grade_system": "GS",
+          "grade": "$grade"
+        }
+      },
+      {
+        "pattern": "(?:One|1) year of specialized experience which includes experience providing financial accounting services in an automated financial system which included analyzing and interpreting accounting information and regulations, and applying generally accepted accounting principles to actual financial problems\\. This definition of specialized experience is typical of work performed at the (?:second lower|next lower) grade/level position in the federal service \\(GS-(?P<grade>\\d{2})\\)\\.",
+        "requirement": {
+          "op": "specialized_experience",
+          "activities": [
+            "automated_financial_accounting_services",
+            "accounting_regulation_interpretation",
+            "gaap_problem_solving"
+          ],
+          "minimum_months": 12,
+          "grade_system": "GS",
+          "grade": "$grade"
+        }
+      }
+    ]
+  },
+  "qualification_composition": {
+    "section": "Qualifications",
+    "bridge": "In addition to meeting the basic requirement(?: above)?, (?:to qualify for this position )?you must also meet the qualification requirements listed below:"
+  }
+}

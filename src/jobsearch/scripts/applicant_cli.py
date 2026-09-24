@@ -52,6 +52,7 @@ def view(args: argparse.Namespace) -> int:
             "location": applicant.location,
             "professional_summary": applicant.professional_summary,
             "experience_summary": applicant.experience_summary,
+            "experience_evidence": applicant.experience_evidence,
             "skills": applicant.skills,
             "linkedin_url": applicant.linkedin_url,
             "github_url": applicant.github_url,

@@ -20,7 +20,8 @@ def context():
     bundle = json.loads(Path('data/search_policy_sample.json').read_text())
     bundle.pop('applicant')
     bundle.update(applicant_id=1, revision=1)
-    return dict(search_policy=bundle, applicant={}, rules_version=tier_rules.RULES_VERSION,
+    # Preserve coverage of the historical provisional-routing behavior.
+    return dict(search_policy=bundle, applicant={}, rules_version='tier-policy-v2',
                 job=dict(title='Example senior role', remote_type='remote', employment_type='full_time'))
 
 
@@ -123,7 +124,8 @@ def test_history_replay_policy_versions_and_isolation(tmp_path, context, monkeyp
             rows, counts = repo.evaluate_jobs(applicant.id)
             first = rows[0]
             saved = deepcopy(first.input_context)
-            assert counts['review'] == 1 and first.tier == 'A'
+            assert counts['review'] == 1 and first.tier is None and first.queue_state == 'unresolved'
+            assert next(r for r in first.reasons if r['check'] == 'tier_assignment')['candidates'][0]['tier'] == 'A'
             assert repo.evaluate_jobs(applicant.id)[1]['unchanged'] == 1
             # An unrelated legacy global salary floor is deliberately not used.
             assert 'preferences' not in saved
@@ -156,7 +158,7 @@ def test_history_replay_policy_versions_and_isolation(tmp_path, context, monkeyp
             session.commit()
         assert main(['--database-url', url, 'list', '--applicant-id', '1']) == 0
         output = capsys.readouterr().out
-        assert 'policy-revision=1 provisional-tier=A tailoring=deep' in output
+        assert 'policy-revision=1 provisional-tier=unassigned tailoring=unassigned' in output
         assert 'policy-revision=2 provisional-tier=unassigned' in output
         with factory() as session:
             assert session.query(JobEvaluation).count() == 5
